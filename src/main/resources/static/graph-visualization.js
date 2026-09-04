@@ -19,16 +19,43 @@ function setupSVG() {
         .attr('width', width)
         .attr('height', height);
 
-    svg.append('defs').append('marker')
-        .attr('id', 'arrowhead')
-        .attr('markerWidth', 10)
-        .attr('markerHeight', 10)
-        .attr('refX', 25)
-        .attr('refY', 3)
+    const defs = svg.append('defs');
+
+    // Default arrow marker for inactive relations
+    defs.append('marker')
+        .attr('id', 'arrowhead-default')
+        .attr('markerWidth', 8)
+        .attr('markerHeight', 8)
+        .attr('refX', 18)
+        .attr('refY', 4)
         .attr('orient', 'auto')
-        .append('polygon')
-        .attr('points', '0 0, 10 3, 0 6')
-        .attr('fill', '#b0bec5');
+        .append('path')
+        .attr('d', 'M 0 0 L 8 4 L 0 8 Z')
+        .attr('fill', '#90a4ae');
+
+    // Active arrow marker for highlighted relations
+    defs.append('marker')
+        .attr('id', 'arrowhead-active')
+        .attr('markerWidth', 8)
+        .attr('markerHeight', 8)
+        .attr('refX', 18)
+        .attr('refY', 4)
+        .attr('orient', 'auto')
+        .append('path')
+        .attr('d', 'M 0 0 L 8 4 L 0 8 Z')
+        .attr('fill', '#667eea');
+
+    // Shadow filter for better visibility
+    defs.append('filter')
+        .attr('id', 'shadow')
+        .html(`
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2"/>
+            <feOffset dx="1" dy="1" result="offsetblur"/>
+            <feMerge>
+                <feMergeNode in="offsetblur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        `);
 
     const zoom = d3.zoom()
         .on('zoom', (event) => {
@@ -132,21 +159,80 @@ function renderGraph() {
             d3.forceCenter(width / 2, height / 2)
         );
 
-    const links = g.selectAll('.link')
+    const links = g.selectAll('.link-group')
         .data(graphData.edges)
         .enter()
         .append('g')
         .attr('class', 'link-group');
 
+    // Add background line for better visibility on hover
+    links.append('line')
+        .attr('class', 'link-background')
+        .attr('stroke-width', 8)
+        .attr('stroke', 'transparent')
+        .style('cursor', 'pointer');
+
+    // Main directional line with arrow
     links.append('line')
         .attr('class', 'link')
-        .attr('stroke-width', 2)
-        .attr('marker-end', 'url(#arrowhead)');
+        .attr('stroke-width', 2.5)
+        .attr('marker-end', 'url(#arrowhead-default)');
 
-    links.append('text')
+    // Relation label with background for readability
+    const labelGroups = links.append('g')
+        .attr('class', 'link-label-group')
+        .style('pointer-events', 'none');
+
+    labelGroups.append('rect')
+        .attr('class', 'link-label-bg')
+        .attr('fill', 'white')
+        .attr('rx', 4)
+        .attr('ry', 3)
+        .attr('opacity', 0.85);
+
+    labelGroups.append('text')
         .attr('class', 'link-label')
         .text(d => d.relationName)
-        .attr('dy', -8);
+        .attr('dy', -8)
+        .attr('text-anchor', 'middle');
+
+    // Update background rect dimensions after text is rendered
+    simulation.on('tick', () => {
+        g.selectAll('.link-label-bg').each(function(d) {
+            const text = d3.select(this.parentNode).select('text');
+            const bbox = text.node().getBBox();
+            d3.select(this)
+                .attr('x', bbox.x - 4)
+                .attr('y', bbox.y - 2)
+                .attr('width', bbox.width + 8)
+                .attr('height', bbox.height + 4);
+        });
+    });
+
+    // Add hover interactions
+    links.on('mouseenter', function(event, d) {
+        d3.select(this).classed('link-hover', true);
+        d3.select(this).select('.link')
+            .attr('marker-end', 'url(#arrowhead-active)');
+
+        // Show tooltip on link hover
+        const tooltip = document.getElementById('tooltip');
+        tooltip.innerHTML = `
+            <strong>${d.relationName}</strong><br>
+            <small>${d.source.title} → ${d.target.title}</small>
+        `;
+        tooltip.classList.add('visible');
+        tooltip.style.left = event.pageX + 12 + 'px';
+        tooltip.style.top = event.pageY + 12 + 'px';
+    });
+
+    links.on('mouseleave', function(event, d) {
+        d3.select(this).classed('link-hover', false);
+        d3.select(this).select('.link')
+            .attr('marker-end', 'url(#arrowhead-default)');
+
+        hideTooltip();
+    });
 
     const nodes = g.selectAll('.node')
         .data(graphData.nodes)
@@ -210,19 +296,84 @@ function renderGraph() {
     });
 
     simulation.on('tick', () => {
-        g.selectAll('.link line')
-            .attr('x1', d => d.source.x)
-            .attr('y1', d => d.source.y)
-            .attr('x2', d => d.target.x)
-            .attr('y2', d => d.target.y);
+        // Update all line types (background and main) with boundary calculation
+        g.selectAll('.link-group line')
+            .attr('x1', d => {
+                const start = calculateLineEndpoint(d.source, d.target, true);
+                return start.x;
+            })
+            .attr('y1', d => {
+                const start = calculateLineEndpoint(d.source, d.target, true);
+                return start.y;
+            })
+            .attr('x2', d => {
+                const end = calculateLineEndpoint(d.source, d.target, false);
+                return end.x;
+            })
+            .attr('y2', d => {
+                const end = calculateLineEndpoint(d.source, d.target, false);
+                return end.y;
+            });
 
-        g.selectAll('.link-label')
-            .attr('x', d => (d.source.x + d.target.x) / 2)
-            .attr('y', d => (d.source.y + d.target.y) / 2);
+        // Update label positions and background rects
+        g.selectAll('.link-label-group')
+            .attr('transform', d => {
+                const start = calculateLineEndpoint(d.source, d.target, true);
+                const end = calculateLineEndpoint(d.source, d.target, false);
+                const mx = (start.x + end.x) / 2;
+                const my = (start.y + end.y) / 2;
+                return `translate(${mx},${my})`;
+            });
 
         g.selectAll('.node')
             .attr('transform', d => `translate(${d.x},${d.y})`);
     });
+}
+
+function getNodeBoundary(node) {
+    // Node rect is 160x100, centered at node position (-80 to 80 on x, -50 to 50 on y)
+    return { width: 160, height: 100 };
+}
+
+function calculateLineEndpoint(source, target, isSource) {
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    if (distance === 0) return isSource ? source : target;
+
+    const angle = Math.atan2(dy, dx);
+    const bounds = getNodeBoundary();
+
+    // Calculate perpendicular distances to node boundaries
+    const halfWidth = bounds.width / 2;
+    const halfHeight = bounds.height / 2;
+
+    // Find intersection with node rectangle
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+
+    let distToEdge;
+
+    // Check which edge the line intersects
+    if (Math.abs(cosA) > 0) {
+        const distX = halfWidth / Math.abs(cosA);
+        distToEdge = distX;
+    }
+    if (Math.abs(sinA) > 0) {
+        const distY = halfHeight / Math.abs(sinA);
+        if (distToEdge === undefined || distY < distToEdge) {
+            distToEdge = distY;
+        }
+    }
+
+    const offset = distToEdge || 70;
+    const node = isSource ? source : target;
+
+    return {
+        x: node.x + (isSource ? -1 : 1) * cosA * offset,
+        y: node.y + (isSource ? -1 : 1) * sinA * offset
+    };
 }
 
 function highlightNode(nodeId) {

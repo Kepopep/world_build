@@ -150,27 +150,61 @@ svg {
     font-weight: normal;
 }
 
+.link-group {
+    cursor: pointer;
+}
+
+.link-group:hover .link {
+    filter: drop-shadow(0 0 4px rgba(102, 126, 234, 0.4));
+}
+
+.link-background {
+    stroke: transparent;
+    pointer-events: stroke;
+}
+
 .link {
-    stroke: #b0bec5;
-    stroke-width: 2px;
+    stroke: #90a4ae;
+    stroke-width: 2.5px;
     fill: none;
-    marker-end: url(#arrowhead);
-    transition: stroke 0.2s;
+    marker-end: url(#arrowhead-default);
+    transition: stroke 0.2s, filter 0.2s;
 }
 
 .link.active {
     stroke: #667eea;
     stroke-width: 3px;
+    marker-end: url(#arrowhead-active);
+    filter: drop-shadow(0 0 6px rgba(102, 126, 234, 0.5));
 }
 
-.link-label {
-    font-size: 11px;
+.link-hover {
+    stroke: #667eea !important;
+    stroke-width: 3px !important;
+    filter: drop-shadow(0 0 6px rgba(102, 126, 234, 0.5)) !important;
+}
+
+.link-hover .link {
+    stroke: #667eea;
+    stroke-width: 3px;
+    marker-end: url(#arrowhead-active);
+}
+
+.link-label-group text {
+    font-size: 12px;
     fill: #667eea;
-    font-weight: 500;
+    font-weight: 600;
     text-anchor: middle;
     pointer-events: none;
-    background: white;
-    padding: 2px 4px;
+}
+
+.link-label-bg {
+    stroke: none;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
+}
+
+.link-group:hover .link-label-group text {
+    font-weight: 700;
 }
 
 .tooltip {
