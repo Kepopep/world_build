@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Building - Relation Graph</title>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <link rel="stylesheet" href="graph-visualization.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ World Building - Relation Graph</h1>
+            <p>Interactive visualization of LoreEntry connections and relationships</p>
+        </div>
+
+        <div class="controls">
+            <label>
+                <span>View:</span>
+                <select id="viewType" onchange="changeView(this.value)">
+                    <option value="all">All Entries</option>
+                    <option value="entry">Single Entry</option>
+                </select>
+            </label>
+
+            <label id="entryLabelContainer" style="display: none;">
+                <span>Entry ID:</span>
+                <input type="number" id="entryId" placeholder="Enter entry ID" min="1">
+            </label>
+
+            <label id="depthLabelContainer" style="display: none;">
+                <span>Depth:</span>
+                <select id="depth">
+                    <option value="1">1 level</option>
+                    <option value="2" selected>2 levels</option>
+                    <option value="3">3 levels</option>
+                    <option value="4">4 levels</option>
+                </select>
+            </label>
+
+            <button onclick="loadGraph()">Load Graph</button>
+            <button onclick="resetZoom()">Reset Zoom</button>
+            <button onclick="centerGraph()">Center</button>
+            <button onclick="togglePhysics()">Toggle Physics</button>
+            <button id="toggleCreationPanel">Edit entry</button>
+        </div>
+
+        <div class="creation-panel">
+            <div class="creation-card">
+                <h2>Create Entry</h2>
+
+                <form id="entryForm">
+                    <label>
+                        <span>Name:</span>
+                        <input
+                                type="text"
+                                id="entryName"
+                                placeholder="Character name"
+                                required>
+                    </label>
+
+                    <label>
+                        <span>Title:</span>
+                        <input
+                                type="text"
+                                id="entryTitle"
+                                placeholder="Character title"
+                                required>
+                    </label>
+
+                    <label>
+                        <span>Description:</span>
+                        <textarea
+                                id="entryDescription"
+                                placeholder="Character description"
+                                required></textarea>
+                    </label>
+
+                    <label>
+                        <span>Fraction:</span>
+                        <input
+                                type="text"
+                                id="entryFraction"
+                                placeholder="Fraction">
+                    </label>
+
+                    <button type="submit">Create Entry</button>
+                </form>
+
+                <div id="entryMessage" class="form-message"></div>
+            </div>
+
+            <div class="creation-card">
+                <h2>Create Relation</h2>
+
+                <form id="relationForm">
+                    <label>
+                        <span>Source ID:</span>
+                        <input
+                                type="number"
+                                id="relationSourceId"
+                                min="1"
+                                placeholder="Source entry ID"
+                                required>
+                    </label>
+
+                    <label>
+                        <span>Target ID:</span>
+                        <input
+                                type="number"
+                                id="relationTargetId"
+                                min="1"
+                                placeholder="Target entry ID"
+                                required>
+                    </label>
+
+                    <label>
+                        <span>Relation Definition ID:</span>
+                        <input
+                                type="number"
+                                id="relationDefinitionId"
+                                min="1"
+                                placeholder="Relation definition ID"
+                                required>
+                    </label>
+
+                    <button type="submit">Create Relation</button>
+                </form>
+
+                <div id="relationMessage" class="form-message"></div>
+            </div>
+
+            <div class="creation-card">
+                <h2>Create Relation Definition</h2>
+
+                <form id="definitionForm">
+                    <label>
+                        <span>Name:</span>
+                        <input
+                                type="text"
+                                id="definitionName"
+                                placeholder="Relation name"
+                                required>
+                    </label>
+
+                    <label>
+                        <span>Reverse Name:</span>
+                        <input
+                                type="text"
+                                id="definitionReverseName"
+                                placeholder="Reverse relation name"
+                                required>
+                    </label>
+
+                    <button type="submit">Create Definition</button>
+                </form>
+
+                <div id="definitionMessage" class="form-message"></div>
+            </div>
+        </div>
+
+        <div class="graph-container" id="graphContainer">
+            <div class="loading">
+                <div class="spinner"></div>
+                Loading graph...
+            </div>
+        </div>
+
+        <div class="stats" id="stats" style="display: none;">
+            <div class="stat">
+                <span>Total Entries:</span>
+                <span class="stat-value" id="statEntries">0</span>
+            </div>
+            <div class="stat">
+                <span>Total Relations:</span>
+                <span class="stat-value" id="statRelations">0</span>
+            </div>
+            <div class="stat">
+                <span>Average Connections:</span>
+                <span class="stat-value" id="statAvgDegree">0</span>
+            </div>
+            <div class="stat">
+                <span>Most Connected:</span>
+                <span class="stat-value" id="statMostConnected">-</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="tooltip" id="tooltip">
+
+    </div>
+
+    <script src="graph-visualization.js"></script>
+</body>
+</html>
