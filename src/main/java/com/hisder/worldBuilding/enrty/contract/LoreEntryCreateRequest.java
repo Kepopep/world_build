@@ -1,5 +1,6 @@
 package com.hisder.worldBuilding.enrty.contract;
 
+import com.hisder.worldBuilding.enrty.EntryType;
 import jakarta.validation.constraints.NotNull;
 
 public record LoreEntryCreateRequest(
@@ -9,5 +10,17 @@ public record LoreEntryCreateRequest(
         @NotNull(message = "title cannot be null")
         String title,
 
-        String description
-) {}
+        String description,
+
+        EntryType type,
+
+        Long parentId,
+
+        Long worldId
+) {
+        public LoreEntryCreateRequest {
+                if (type == null) {
+                        type = EntryType.EMPTY;
+                }
+        }
+}

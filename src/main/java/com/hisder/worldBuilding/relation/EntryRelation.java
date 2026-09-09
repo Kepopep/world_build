@@ -17,7 +17,8 @@ import org.hibernate.annotations.OnDeleteAction;
 public class EntryRelation {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "relation_seq")
+    @SequenceGenerator(name = "relation_seq", sequenceName = "relation_id_seq")
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY)
