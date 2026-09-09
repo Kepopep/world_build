@@ -21,6 +21,7 @@ public class LoreEntry {
 
     private String title;
 
+    @Column(columnDefinition = "TEXT")
     private String description;
 
     private EntryType type;
