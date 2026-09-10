@@ -51,6 +51,9 @@ public class EntryService {
             validateTitle(request.title());
             entry.setTitle(request.title().trim());
         }
+        if (request.summary() != null) {
+            entry.setSummary(request.summary());
+        }
         if (request.contentMarkdown() != null) {
             entry.setContentMarkdown(request.contentMarkdown());
         }
@@ -76,6 +79,19 @@ public class EntryService {
         }
         World world = getWorldOrThrow(worldId);
         return entryRepository.searchByTitle(world.getId(), query.trim(), PageRequest.of(0, limit));
+    }
+
+    // Backs the general title/summary/content search endpoint -- distinct
+    // from searchEntriesByTitle above, which only backs the narrower
+    // wikilink typeahead. Same blank-query convention: return empty rather
+    // than 400.
+    @Transactional(readOnly = true)
+    public List<Entry> searchEntries(Long worldId, String query, int limit) {
+        if (query == null || query.isBlank()) {
+            return List.of();
+        }
+        World world = getWorldOrThrow(worldId);
+        return entryRepository.search(world.getId(), query.trim(), PageRequest.of(0, limit));
     }
 
     public void deleteEntry(Long id) {

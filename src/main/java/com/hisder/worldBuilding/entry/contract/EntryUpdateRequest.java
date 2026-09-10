@@ -7,5 +7,5 @@ package com.hisder.worldBuilding.entry.contract;
  * (folderId -> null) isn't expressible through this contract yet. Not
  * currently exercised by any UI (no move-entry-between-folders flow exists).
  */
-public record EntryUpdateRequest(String title, String contentMarkdown, Long folderId) {
+public record EntryUpdateRequest(String title, String summary, String contentMarkdown, Long folderId) {
 }
