@@ -1,6 +1,8 @@
 package com.hisder.worldBuilding.entry;
 
 import com.hisder.worldBuilding.entry.contract.EntryUpdateRequest;
+import com.hisder.worldBuilding.folder.Folder;
+import com.hisder.worldBuilding.folder.FolderRepository;
 import com.hisder.worldBuilding.world.World;
 import com.hisder.worldBuilding.world.WorldRepository;
 import jakarta.persistence.EntityNotFoundException;
@@ -16,10 +18,12 @@ public class EntryService {
 
     private final EntryRepository entryRepository;
     private final WorldRepository worldRepository;
+    private final FolderRepository folderRepository;
 
-    public EntryService(EntryRepository entryRepository, WorldRepository worldRepository) {
+    public EntryService(EntryRepository entryRepository, WorldRepository worldRepository, FolderRepository folderRepository) {
         this.entryRepository = entryRepository;
         this.worldRepository = worldRepository;
+        this.folderRepository = folderRepository;
     }
 
     @Transactional(readOnly = true)
@@ -28,10 +32,12 @@ public class EntryService {
         return entryRepository.findByWorldId(world.getId());
     }
 
-    public Entry createEntry(Long worldId, String title, String contentMarkdown) {
+    public Entry createEntry(Long worldId, String title, String contentMarkdown, Long folderId) {
         World world = getWorldOrThrow(worldId);
         validateTitle(title);
-        return entryRepository.save(new Entry(world, title.trim(), contentMarkdown));
+        Entry entry = new Entry(world, title.trim(), contentMarkdown);
+        entry.setFolder(resolveFolder(world, folderId));
+        return entryRepository.save(entry);
     }
 
     @Transactional(readOnly = true)
@@ -48,6 +54,18 @@ public class EntryService {
         if (request.contentMarkdown() != null) {
             entry.setContentMarkdown(request.contentMarkdown());
         }
+        if (request.folderId() != null) {
+            entry.setFolder(resolveFolder(entry.getWorld(), request.folderId()));
+        }
+        return entry;
+    }
+
+    // Unlike updateEntry's folderId handling (null = leave unchanged), this
+    // always applies folderId as given, including null (move to root) -- see
+    // EntryMoveRequest's doc comment. Used by the sidebar's drag-and-drop.
+    public Entry moveEntry(Long id, Long folderId) {
+        Entry entry = getEntryOrThrow(id);
+        entry.setFolder(resolveFolder(entry.getWorld(), folderId));
         return entry;
     }
 
@@ -73,6 +91,21 @@ public class EntryService {
     private Entry getEntryOrThrow(Long id) {
         return entryRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Entry not found: " + id));
+    }
+
+    // null folderId -> root level (no folder). A non-null id must resolve to
+    // a real folder in the same world -- same cross-world guard pattern as
+    // FolderService.resolveParent.
+    private Folder resolveFolder(World world, Long folderId) {
+        if (folderId == null) {
+            return null;
+        }
+        Folder folder = folderRepository.findById(folderId)
+                .orElseThrow(() -> new EntityNotFoundException("Folder not found: " + folderId));
+        if (!folder.getWorld().getId().equals(world.getId())) {
+            throw new IllegalArgumentException("Folder belongs to a different world");
+        }
+        return folder;
     }
 
     private void validateTitle(String title) {

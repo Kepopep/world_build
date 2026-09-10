@@ -1,6 +1,7 @@
 package com.hisder.worldBuilding.entry;
 
 import com.hisder.worldBuilding.entry.contract.EntryCreateRequest;
+import com.hisder.worldBuilding.entry.contract.EntryMoveRequest;
 import com.hisder.worldBuilding.entry.contract.EntryResponse;
 import com.hisder.worldBuilding.entry.contract.EntryTitleSuggestion;
 import com.hisder.worldBuilding.entry.contract.EntryUpdateRequest;
@@ -37,7 +38,7 @@ public class EntryController {
     @PostMapping("/api/worlds/{worldId}/entries")
     @ResponseStatus(HttpStatus.CREATED)
     public EntryResponse createEntry(@PathVariable Long worldId, @RequestBody EntryCreateRequest request) {
-        Entry entry = entryService.createEntry(worldId, request.title(), request.contentMarkdown());
+        Entry entry = entryService.createEntry(worldId, request.title(), request.contentMarkdown(), request.folderId());
         return EntryResponse.from(entry);
     }
 
@@ -58,6 +59,15 @@ public class EntryController {
     @PatchMapping("/api/entries/{id}")
     public EntryResponse updateEntry(@PathVariable Long id, @RequestBody EntryUpdateRequest request) {
         Entry entry = entryService.updateEntry(id, request);
+        return EntryResponse.from(entry);
+    }
+
+    // Drag-and-drop moves go through here rather than PATCH /api/entries/{id}
+    // -- see EntryMoveRequest's doc comment for why (that endpoint's
+    // null-means-unchanged folderId convention can't express "move to root").
+    @PatchMapping("/api/entries/{id}/move")
+    public EntryResponse moveEntry(@PathVariable Long id, @RequestBody EntryMoveRequest request) {
+        Entry entry = entryService.moveEntry(id, request.folderId());
         return EntryResponse.from(entry);
     }
 

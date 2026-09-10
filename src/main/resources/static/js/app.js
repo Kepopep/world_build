@@ -1,10 +1,12 @@
-// Bootstrap/wiring for the narrow first-slice UI: world picker, entry list,
-// and a plain title+markdown editor. No sidebar tree, tags, relations,
-// search, or theming yet -- those come in later phases per CLAUDE.md.
+// Bootstrap/wiring for the narrow first-slice UI: world picker, a
+// folder/entry tree sidebar (see sidebar.js), a title+markdown editor (see
+// editor.js), and the tag pill row (see tags.js). No relations, search, or
+// theming yet -- those come in later phases per CLAUDE.md.
 
 const state = {
   worlds: [],
   selectedWorldId: null,
+  folders: [],
   entries: [],
   openEntryId: null,
   dirty: false,
@@ -19,14 +21,17 @@ document.addEventListener("DOMContentLoaded", () => {
   els.worldSelect = document.getElementById("world-select");
   els.newWorldName = document.getElementById("new-world-name");
   els.newWorldBtn = document.getElementById("new-world-btn");
-  els.entryList = document.getElementById("entry-list");
+  els.entryTree = document.getElementById("entry-tree");
+  els.newFolderBtn = document.getElementById("new-folder-btn");
   els.newEntryBtn = document.getElementById("new-entry-btn");
   els.editor = document.getElementById("editor");
   els.editorEmpty = document.getElementById("editor-empty");
+  els.breadcrumb = document.getElementById("breadcrumb");
   els.entryTitle = document.getElementById("entry-title");
   els.entryContent = document.getElementById("entry-content");
   els.entryContentOverlay = document.getElementById("entry-content-overlay");
   els.wikilinkAutocomplete = document.getElementById("wikilink-autocomplete");
+  els.entryTags = document.getElementById("entry-tags");
   els.editToggleBtn = document.getElementById("edit-toggle-btn");
   els.saveBtn = document.getElementById("save-btn");
   els.deleteBtn = document.getElementById("delete-btn");
@@ -34,7 +39,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   els.worldSelect.addEventListener("change", onWorldSelected);
   els.newWorldBtn.addEventListener("click", onCreateWorld);
-  els.newEntryBtn.addEventListener("click", onCreateEntry);
+  els.newFolderBtn.addEventListener("click", onCreateFolder);
+  // Wrapped rather than passed directly -- onCreateEntry now takes an
+  // optional folderId, and addEventListener would otherwise hand it the
+  // click MouseEvent as that argument.
+  els.newEntryBtn.addEventListener("click", () => onCreateEntry());
   els.editToggleBtn.addEventListener("click", onToggleEditing);
   els.saveBtn.addEventListener("click", onSaveEntry);
   els.deleteBtn.addEventListener("click", () => onDeleteEntry(state.openEntryId));
@@ -72,7 +81,7 @@ async function init() {
     if (state.worlds.length > 0) {
       state.selectedWorldId = state.worlds[0].id;
       els.worldSelect.value = state.selectedWorldId;
-      await loadEntries();
+      await loadHierarchy();
     }
   } catch (err) {
     showStatus(err.message, true);
@@ -83,6 +92,7 @@ async function init() {
 // Enables/disables actions that require a world/entry to be selected.
 // Called after every state change that could affect these preconditions.
 function updateActionStates() {
+  els.newFolderBtn.disabled = !state.selectedWorldId;
   els.newEntryBtn.disabled = !state.selectedWorldId;
   els.editToggleBtn.disabled = !state.openEntryId;
   // Saving only makes sense while editing -- fields are read-only otherwise,
@@ -112,7 +122,7 @@ function renderWorldOptions() {
 async function onWorldSelected() {
   state.selectedWorldId = els.worldSelect.value;
   closeEditor();
-  await loadEntries();
+  await loadHierarchy();
   updateActionStates();
 }
 
@@ -130,7 +140,7 @@ async function onCreateWorld() {
     state.selectedWorldId = world.id;
     els.newWorldName.value = "";
     closeEditor();
-    await loadEntries();
+    await loadHierarchy();
     showStatus(`World "${world.name}" created.`);
   } catch (err) {
     showStatus(err.message, true);
@@ -138,20 +148,117 @@ async function onCreateWorld() {
   updateActionStates();
 }
 
-async function loadEntries() {
+async function loadHierarchy() {
   if (!state.selectedWorldId) {
+    state.folders = [];
     state.entries = [];
-    renderEntryList();
+    renderSidebar();
     syncEditorState();
     return;
   }
   try {
-    state.entries = await window.api.listEntries(state.selectedWorldId);
-    renderEntryList();
+    const hierarchy = await window.api.getHierarchy(state.selectedWorldId);
+    state.folders = hierarchy.folders;
+    state.entries = hierarchy.entries;
+    renderSidebar();
+    // Also the refresh path after sidebar.js's drag-and-drop moves an entry
+    // between folders (via onHierarchyChanged) -- if that was the open
+    // entry, its breadcrumb folder path just changed.
+    renderBreadcrumb();
   } catch (err) {
     showStatus(err.message, true);
   }
   syncEditorState();
+}
+
+// Renders the folder/entry tree via sidebar.js. Called after anything that
+// changes state.folders, state.entries, or state.openEntryId (for the
+// active-entry highlight) -- see the call sites throughout this file, same
+// "re-render from current state" pattern as renderTags()/syncEditorState().
+function renderSidebar() {
+  window.sidebar.render(els.entryTree, {
+    worldId: state.selectedWorldId,
+    folders: state.folders,
+    entries: state.entries,
+    openEntryId: state.openEntryId,
+    onOpenEntry: openEntry,
+    onCreateEntry: onCreateEntry,
+    onDeleteEntry: onDeleteEntry,
+    // Folder create/delete happen entirely inside sidebar.js (see its own
+    // header comment for why) -- this is its way of saying "the hierarchy
+    // changed on the server, please refetch" rather than patching
+    // state.folders/state.entries piecemeal in place.
+    onHierarchyChanged: loadHierarchy,
+    onError: (msg) => showStatus(msg, true),
+  });
+}
+
+// Prompts for a folder name and creates it at the world's root -- the
+// current sidebar UI doesn't expose creating nested subfolders (see
+// CLAUDE.md's Navigation section), only top-level ones. Uses a native
+// prompt() rather than an inline reveal-form (contrast tags.js's "+ Add
+// tag"): folder creation is comparatively rare, so the extra UI weight of
+// an inline form isn't worth it here, and confirm()-style native dialogs
+// are already this codebase's convention for infrequent actions (delete
+// confirmations).
+async function onCreateFolder() {
+  if (!state.selectedWorldId) {
+    showStatus("Select or create a world first.", true);
+    return;
+  }
+  const name = prompt("Folder name:");
+  if (!name || !name.trim()) {
+    return;
+  }
+  try {
+    await window.api.createFolder(state.selectedWorldId, { name: name.trim() });
+    await loadHierarchy();
+    showStatus(`Folder "${name.trim()}" created.`);
+  } catch (err) {
+    showStatus(err.message, true);
+  }
+}
+
+// Worlds > {World} > {Folder path...} > {Entry}, per CLAUDE.md's UI
+// breakdown. Walks entry.folderId up through state.folders' parentFolderId
+// chain to build the folder path; renders nothing if no entry is open.
+function renderBreadcrumb() {
+  els.breadcrumb.innerHTML = "";
+  const world = state.worlds.find((w) => String(w.id) === String(state.selectedWorldId));
+  const entry = state.entries.find((e) => e.id === state.openEntryId);
+  if (!world || !entry) {
+    return;
+  }
+
+  const foldersById = new Map(state.folders.map((f) => [f.id, f]));
+  const folderPath = [];
+  let folderId = entry.folderId;
+  // Defensively bounded (state.folders is small and this is a tree, not a
+  // graph, so it shouldn't ever cycle) -- guards against a malformed chain
+  // hanging the loop rather than just rendering a short/wrong path.
+  let guard = 0;
+  while (folderId != null && guard++ < 50) {
+    const folder = foldersById.get(folderId);
+    if (!folder) {
+      break;
+    }
+    folderPath.unshift(folder.name);
+    folderId = folder.parentFolderId;
+  }
+
+  const parts = ["Worlds", world.name, ...folderPath, entry.title || "Untitled"];
+  parts.forEach((part, i) => {
+    if (i > 0) {
+      const sep = document.createElement("span");
+      sep.className = "breadcrumb-separator";
+      sep.textContent = "›";
+      els.breadcrumb.appendChild(sep);
+    }
+    const span = document.createElement("span");
+    span.className = "breadcrumb-part" + (i === parts.length - 1 ? " current" : "");
+    span.textContent = part;
+    els.breadcrumb.appendChild(span);
+  });
 }
 
 // Re-wires editor.js with the current world id, entry list (for its
@@ -210,6 +317,13 @@ async function setEditing(editing) {
   els.editToggleBtn.setAttribute("aria-label", editing ? "Done editing" : "Edit");
   syncEditorState();
   updateActionStates();
+  // Single call site for both directions of the view/edit transition --
+  // openEntry(), closeEditor(), onToggleEditing(), and both Escape paths all
+  // funnel through setEditing(), so this is enough to keep the tag pill
+  // row's editable controls and the breadcrumb in sync without needing a
+  // call in each of them.
+  renderTags();
+  renderBreadcrumb();
   if (editing) {
     els.entryContent.focus();
   } else {
@@ -231,55 +345,57 @@ function onToggleEditing() {
   setEditing(!state.editing);
 }
 
+// Re-renders the tag pill row for the currently open entry, if any.
+// Editability (add/remove/color-change controls) tracks state.editing, same
+// gating rule as the title/content fields -- tags are always visible, just
+// not editable outside edit mode. Always looks the entry up fresh from
+// state.entries rather than caching a reference, since several call sites
+// (onSaveEntry, tag add/remove) replace that array's entry objects wholesale
+// with a new server response.
+function renderTags() {
+  if (!state.openEntryId) {
+    els.entryTags.innerHTML = "";
+    return;
+  }
+  const entry = state.entries.find((e) => e.id === state.openEntryId);
+  if (!entry) {
+    els.entryTags.innerHTML = "";
+    return;
+  }
+  window.tags.render(els.entryTags, entry, {
+    editable: state.editing,
+    worldId: state.selectedWorldId,
+    onEntryChanged: onEntryTagsChanged,
+    onError: (msg) => showStatus(msg, true),
+  });
+}
+
+// Called by tags.js after a tag is added to or removed from the open entry
+// (both return the updated EntryResponse). Mirrors the pattern
+// onStubEntryCreated/onSaveEntry already use for keeping state.entries in
+// sync with a fresh server response.
+function onEntryTagsChanged(updatedEntry) {
+  const idx = state.entries.findIndex((e) => e.id === updatedEntry.id);
+  if (idx !== -1) {
+    state.entries[idx] = updatedEntry;
+  }
+  renderTags();
+}
+
 // Called by editor.js after it creates a stub entry for a double-clicked
 // unresolved [[Title]] link (design doc 2.7). editor.js already updated its
 // own title-resolution index; this just mirrors the new entry into
 // state.entries so the sidebar picks it up too.
 function onStubEntryCreated(entry) {
   state.entries.push(entry);
-  renderEntryList();
+  renderSidebar();
 }
 
-function renderEntryList() {
-  els.entryList.innerHTML = "";
-
-  if (state.entries.length === 0) {
-    const empty = document.createElement("li");
-    empty.className = "entry-list-empty";
-    empty.textContent = "No entries yet.";
-    els.entryList.appendChild(empty);
-    return;
-  }
-
-  for (const entry of state.entries) {
-    const li = document.createElement("li");
-    li.className = "entry-list-item";
-    if (entry.id === state.openEntryId) {
-      li.classList.add("active");
-    }
-
-    const titleBtn = document.createElement("button");
-    titleBtn.type = "button";
-    titleBtn.className = "entry-title-btn";
-    titleBtn.textContent = entry.title || "Untitled";
-    titleBtn.addEventListener("click", () => openEntry(entry.id));
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.type = "button";
-    deleteBtn.className = "entry-delete-btn";
-    deleteBtn.textContent = "Delete";
-    deleteBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      onDeleteEntry(entry.id);
-    });
-
-    li.appendChild(titleBtn);
-    li.appendChild(deleteBtn);
-    els.entryList.appendChild(li);
-  }
-}
-
-async function onCreateEntry() {
+// folderId: creates the entry inside that folder, or at the world's root if
+// omitted/null. Called both by the header's "+ New entry" button (always
+// root-level, see the wrapped listener in DOMContentLoaded) and by
+// sidebar.js's per-folder "+" button (via the onCreateEntry callback).
+async function onCreateEntry(folderId) {
   if (!state.selectedWorldId) {
     showStatus("Select or create a world first.", true);
     return;
@@ -288,9 +404,10 @@ async function onCreateEntry() {
     const entry = await window.api.createEntry(state.selectedWorldId, {
       title: "Untitled",
       contentMarkdown: "",
+      folderId: folderId || null,
     });
     state.entries.push(entry);
-    renderEntryList();
+    renderSidebar();
     // Drop straight into edit mode -- a freshly created entry is empty, so
     // making the user click Edit before they can type anything into it
     // would just be friction.
@@ -310,13 +427,22 @@ async function openEntry(id, { startEditing = false } = {}) {
   }
   try {
     const entry = await window.api.getEntry(id);
+    // Refresh state.entries' copy too, not just the visible fields below --
+    // the list endpoint's snapshot could be stale (e.g. a tag changed since
+    // load), and renderTags() always reads from state.entries.
+    const idx = state.entries.findIndex((e) => e.id === entry.id);
+    if (idx !== -1) {
+      state.entries[idx] = entry;
+    } else {
+      state.entries.push(entry);
+    }
     state.openEntryId = entry.id;
     state.dirty = false;
     els.entryTitle.value = entry.title || "";
     els.entryContent.value = entry.contentMarkdown || "";
     els.editor.hidden = false;
     els.editorEmpty.hidden = true;
-    renderEntryList();
+    renderSidebar();
     // Entries open read-only by default, except startEditing (new entries --
     // see onCreateEntry). Either way this also resyncs editor.js -- setting
     // .value directly above doesn't fire "input", so editor.js's own
@@ -367,10 +493,17 @@ async function onSaveEntry() {
     if (idx !== -1) {
       state.entries[idx] = updated;
     }
-    renderEntryList();
+    renderSidebar();
     // Title may have changed -- rebuild editor.js's wikilink resolution
     // index so other [[Title]] references pick up the rename.
     syncEditorState();
+    // state.entries[idx] above is now a new object (the fresh server
+    // response) -- re-render tags from it so tags.js's event handlers stay
+    // bound to the same object state.entries holds, not a stale one from
+    // before this save.
+    renderTags();
+    // Title may be the breadcrumb's last segment.
+    renderBreadcrumb();
     showStatus("Saved.");
     return true;
   } catch (err) {
@@ -399,7 +532,7 @@ async function onDeleteEntry(id) {
       // to unresolved. (closeEditor() already does this in the other branch.)
       syncEditorState();
     }
-    renderEntryList();
+    renderSidebar();
     showStatus("Entry deleted.");
   } catch (err) {
     showStatus(err.message, true);

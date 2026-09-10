@@ -6,6 +6,8 @@
   <title>Mythos</title>
   <link rel="stylesheet" href="css/base.css">
   <link rel="stylesheet" href="css/editor.css">
+  <link rel="stylesheet" href="css/tags.css">
+  <link rel="stylesheet" href="css/sidebar.css">
 </head>
 <body>
   <header id="top-bar">
@@ -24,15 +26,17 @@
     <aside id="entry-sidebar">
       <div class="sidebar-header">
         <h2>Entries</h2>
+        <button id="new-folder-btn" type="button">+ Folder</button>
         <button id="new-entry-btn" type="button">+ New entry</button>
       </div>
-      <ul id="entry-list"></ul>
+      <ul id="entry-tree"></ul>
     </aside>
 
     <section id="content-panel">
       <p id="editor-empty">Select an entry, or create a new one, to start editing.</p>
 
       <div id="editor" hidden>
+        <div id="breadcrumb"></div>
         <div class="content-toolbar">
           <button id="edit-toggle-btn" type="button" class="icon-btn" aria-pressed="false" title="Edit" aria-label="Edit">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -57,6 +61,7 @@
           </button>
         </div>
         <input id="entry-title" type="text" placeholder="Entry title" readonly>
+        <div id="entry-tags"></div>
         <div id="entry-content-wrapper">
           <div id="entry-content-overlay" aria-hidden="true"></div>
           <textarea id="entry-content" placeholder="Write markdown here..." spellcheck="false" readonly></textarea>
@@ -68,6 +73,8 @@
 
   <script src="js/api.js"></script>
   <script src="js/editor.js"></script>
+  <script src="js/tags.js"></script>
+  <script src="js/sidebar.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
