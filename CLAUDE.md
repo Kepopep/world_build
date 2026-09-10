@@ -20,27 +20,35 @@ ambiguous.
 implementation (a D3 force-graph homepage + a mock-data entry-view page,
 documented in the now-deleted `docs/`) was removed wholesale in
 `5eafafe feat!: delete all` to restart from this reference design. Since then
-the rebuild has produced a working (if still narrow) vertical slice rather
-than the full screenshot UI:
+the rebuild has caught up to essentially the full screenshot UI — every
+top-level checklist item now has at least a working implementation, though a
+few pieces (relation-creation UI, `Entry.icon` write path, sibling reorder)
+remain deliberately deferred. See "Feature checklist" for the precise
+per-item status.
 
-- **Backend:** `World`, `Folder`, `Entry`, and `Tag` entities + CRUD are
-  implemented (`world/`, `folder/`, `entry/`, `tag/` packages), plus an
-  entry-title typeahead endpoint (`GET /api/worlds/{worldId}/entries/search`)
-  for the wikilink autocomplete below and a `GET /api/worlds/{worldId}/hierarchy`
-  aggregation endpoint for the sidebar tree. `RelationDefinition`/`Relation`
-  and `GraphService` do not exist yet — see Domain model.
+- **Backend:** `World`, `Folder`, `Entry`, `Tag`, `RelationDefinition`, and
+  `Relation` entities + CRUD are all implemented (`world/`, `folder/`,
+  `entry/`, `tag/`, `relation/`, `relation/definition/` packages), plus a
+  read-only `GraphService`/`GraphController` (`graph/`) aggregating
+  Entry+Relation into nodes/edges for both the per-entry and full-world graph
+  views, a general search endpoint (`search/`, title/summary/content) and the
+  narrower entry-title typeahead (`GET /api/worlds/{worldId}/entries/search`)
+  that backs the wikilink autocomplete, and the sidebar's
+  `GET /api/worlds/{worldId}/hierarchy` aggregation endpoint.
 - **Frontend:** a shell (`index.html` + `js/app.js` + `js/api.js`) with a
-  real folder/entry tree sidebar (`js/sidebar.js` + `css/sidebar.css`), an
-  entry editor, and a tag pill row — no far-left icon rail or right rail yet.
-  Four features are well ahead of the "Suggested implementation order" below
-  — Obsidian-style `[[entity]]` cross-references with autocomplete, an
-  explicit view/edit mode toggle, dynamically-created colored tags, and (now
-  catching the tree/folder work up to where the other three already were)
-  drag-and-drop folder/entry organization — while the general markdown
-  toolbar, header/bullet/bold syntax highlighting, and entry header (icon +
-  summary) the full design calls for are still missing. See "Wikilink
-  references & edit mode", "Tags", and "Navigation" below for what's
-  actually implemented, and
+  real folder/entry tree sidebar (`js/sidebar.js` + `css/sidebar.css`), a
+  markdown editor with a full formatting toolbar and syntax highlighting, a
+  tag pill row, an entry header (letter-avatar, summary, timestamps), a
+  far-left icon rail and a right icon rail (outline/backlinks/entry-graph
+  panels), a theme toggle, and a top-bar search box. Obsidian-style
+  `[[entity]]` cross-references with autocomplete, an explicit view/edit
+  mode toggle, dynamically-created colored tags, and drag-and-drop
+  folder/entry organization were built ahead of the "Suggested
+  implementation order" below on direct request; the general toolbar/
+  highlighting, entry header, right panel, and relation graph have since
+  caught up to close most of the remaining gap. See "Wikilink references &
+  edit mode", "Tags", "Navigation", "Relations & graph", and "Right panel"
+  below for what's actually implemented, and
   `docs/design/autocomplete-and-entity-references.md` for the wikilink
   design rationale (textarea+overlay rendering, click/dblclick routing,
   known accepted gaps).
@@ -138,18 +146,30 @@ request/response DTOs — mirrors the prior codebase's structure):
   `@ManyToMany` join table" alternative this line originally offered) rather
   than a standalone `EntryTag` entity — see "Tags" below for the full
   behavior (dynamic creation, color editing, etc.) and REST contract.
-- **`RelationDefinition`** — `id`, `worldId`, `name`, `reverseName` (e.g.
-  `"rules"` / `"ruled by"` — the reverse name is what's shown traversing the
-  edge from the target side). Reuse this pattern from the prior
-  implementation; it's what drives readable, directional relation labels.
-- **`Relation`** — `id`, `sourceEntryId`, `targetEntryId`,
-  `relationDefinitionId`. Service layer should reject self-relations and
-  duplicate relations in either direction (prior codebase did this in
-  `RelationService` — worth carrying forward).
+- ✅ **`RelationDefinition`** — `id`, `world` (`@ManyToOne`), `name`,
+  `reverseName` (e.g. `"rules"` / `"ruled by"` — the reverse name is what's
+  shown traversing the edge from the target side). `RelationDefinitionService`
+  logic lives folded into `RelationService` (they're always used together —
+  creating a `Relation` needs to resolve a `RelationDefinition`), but
+  `RelationDefinitionController` stays a separate controller class since it
+  owns a different resource root (`/api/worlds/{worldId}/relation-definitions`
+  vs `/api/relations`). See "Relations & graph" below.
+- ✅ **`Relation`** — `id`, `sourceEntry`/`targetEntry`/`relationDefinition`
+  (all real `@ManyToOne`, no bare FK `Long`s, no redundant `worldId` column —
+  world membership is derived from `sourceEntry.getWorld()` and cross-checked
+  against the other two). `RelationService.createRelation` rejects
+  self-relations, resolves all three ids (404 if any missing), enforces all
+  three share one `World`, and rejects a duplicate relation of the *same
+  type* in either direction (two entries can still have relations of
+  *different* types between them) — carried forward from the prior
+  implementation as suggested. See "Relations & graph" below for the full
+  REST contract.
 
-`GraphService` (read-only aggregation over `Entry` + `Relation`, no storage of
-its own) reshapes rows into graph nodes/edges for both the right-panel
-per-entry graph and any full-world graph view behind the far-left graph icon.
+✅ `GraphService` (read-only aggregation over `Entry` + `Relation`, no
+storage of its own) reshapes rows into graph nodes/edges for both the
+right-panel per-entry graph (BFS-expanded to a given depth, capped at 5) and
+the full-world graph behind the far-left graph icon. See "Relations & graph"
+below.
 
 ## Feature checklist
 
@@ -161,35 +181,35 @@ per-entry graph and any full-world graph view behind the far-left graph icon.
 - ✅ **Navigation (mostly implemented):** collapsible folder/entry tree
   scoped to the active world; breadcrumb reflecting the open entry's folder
   path; far-left rail for switching between notes/library/database/graph
-  modes. The tree and breadcrumb are built — see "Navigation" below for full
-  behavior (nested folders, drag-and-drop, horizontal scroll). **Still not
-  built:** the far-left icon rail (its other modes — library/database/graph
-  — don't have views to switch to yet, so it was deliberately deferred, see
-  the earlier scope discussion in "Navigation" below).
-- **Search:** search box scoped to "current world", searching entry
-  title/summary/content (and maybe tags). **Not built as a UI search box
-  yet.** What exists is narrower and serves a different purpose: an
+  modes. The tree, breadcrumb, and far-left rail are all built — see
+  "Navigation" below for the tree's full behavior (nested folders,
+  drag-and-drop, horizontal scroll). The rail's notes and graph modes are
+  live; library/database render as visibly-disabled placeholders since they
+  have no views behind them yet (deliberately deferred, not an oversight).
+- ✅ **Search (implemented):** a debounced top-bar search box scoped to the
+  active world, matching entry title/summary/content
+  (`GET /api/worlds/{worldId}/search?q=`), dropdown of results with a
+  summary snippet, click-to-navigate. Distinct from the narrower
   entry-title-only typeahead (`GET /api/worlds/{worldId}/entries/search`)
-  built specifically to back the wikilink `[[`-autocomplete popup, not a
-  general top-bar search box. This checklist item (title+summary+content,
-  wired to the top search bar) is still open — see the REST API sketch's
-  distinction between the two endpoints.
-- **Entry viewing:** header (icon, title, summary, tags), created/modified
-  timestamps, breadcrumb, content toolbar (edit/link/duplicate/more). ⚠️
-  Partially superseded by the simpler toolbar actually built — see below.
-  Of the header's pieces, the tag row (see "Tags" below) and the breadcrumb
-  (see "Navigation" below) are built; no icon, summary, or timestamp display
-  yet, and no dedicated header section containing them — the breadcrumb,
-  title input, and tag row are just sibling elements stacked in the content
-  panel today, not a single "header" block.
-- **Entry editing:** markdown source editor with a formatting toolbar
-  (headings dropdown, bold/italic/underline/strikethrough, link, image,
-  bullet/numbered list, quote, inline code, code block, undo/redo); toolbar
-  actions insert/wrap markdown syntax at the cursor rather than manipulating a
-  rich-text DOM. Live word count + format label in the footer. **Not built
-  yet** — the current editor only highlights `[[wikilink]]` tokens (see
-  below), not general markdown syntax, and has no formatting toolbar or word
-  count.
+  that backs the wikilink `[[`-autocomplete popup — see the REST API
+  sketch's distinction between the two endpoints. `js/search.js`.
+- ✅ **Entry viewing (implemented):** a real header block — circular
+  letter-avatar (hashed from the title; no icon-picker UX exists yet, so
+  this is a deliberate stand-in for the screenshot's "circular type icon"),
+  title, one-line summary (now backed by `EntryUpdateRequest.summary`),
+  colored tag pills (see "Tags" below), right-aligned Created/Last modified
+  timestamps, and the breadcrumb (see "Navigation" below). Content toolbar
+  is the simpler Edit/Save/Delete + entry-graph icon-button row actually
+  built rather than the screenshot's edit/link/duplicate/`...`-overflow —
+  see "Wikilink references & edit mode" below.
+- ✅ **Entry editing (implemented):** markdown source editor with a full
+  formatting toolbar (undo/redo, headings dropdown, bold/italic/underline/
+  strikethrough, link, image, bullet/numbered list, blockquote, inline code,
+  fenced code block) inserting/wrapping raw markdown at the cursor; extended
+  header/bullet/bold/italic/inline-code/codeblock syntax highlighting in the
+  overlay; live word count + `Markdown · N words` footer label; and a
+  rendered read-mode preview (DOM, not just styled source) when not editing.
+  `js/editor.js`/`css/editor.css`.
 - ✅ **Entity cross-references (implemented, ahead of schedule):**
   Obsidian-style `[[Entry Title]]` wikilinks in the markdown source, with
   inline `[[`-triggered autocomplete, resolved/unresolved highlighting,
@@ -209,14 +229,26 @@ per-entry graph and any full-world graph view behind the far-left graph icon.
   entry, scoped per world; tags are created dynamically (typing a new name
   creates it) rather than through a separate "manage tags" screen. See
   "Tags" below.
-- **Relations & graph:** define relation types (`RelationDefinition`), link
-  entries, view a relation graph centered on the open entry (right rail) and
-  a full-world graph (far-left rail). **Not built yet.**
-- **Right panel:** outline (parsed from the entry's own markdown headings),
-  backlinks (other entries with a relation pointing at this one).
-- **Misc:** light/dark theme toggle (persist choice, e.g. `localStorage`);
-  notifications bell — stub only, no feed exists yet; keep out of scope
-  unless asked.
+- ✅ **Relations & graph (implemented):** `RelationDefinition`/`Relation`
+  backend + REST (see Domain model above), and a graph view merging two edge
+  kinds into one picture — solid labeled edges for formal `Relation`s, dashed
+  edges for resolved `[[wikilink]]` references (no relation-creation UI yet;
+  only display/consumption of existing relations is wired — see "Relations &
+  graph" below). Full-world graph stays the existing force-directed modal
+  (`js/graph.js`, opened from the top bar or the far-left rail's graph
+  icon); the per-entry graph is a new small embedded radial panel in the
+  right rail.
+- ✅ **Right panel (implemented):** outline (headings parsed client-side
+  from `contentMarkdown`, click-to-jump) and backlinks (currently
+  wikilink-derived only — "Linked from" entries whose content resolves a
+  `[[This Entry]]` reference; a formal-Relation-based section is deferred
+  until relation-creation UI exists, see "Relations & graph" below) both
+  implemented, plus the entry-graph panel described above.
+- ✅ **Misc — theme toggle (implemented):** light/dark via a
+  `[data-theme="light"]` CSS custom-property override block, toggled by
+  `js/theme.js`, persisted to `localStorage`, defaults dark to match prior
+  behavior. Notifications bell is still a stub only, no feed exists yet —
+  stays out of scope unless asked.
 
 ## Suggested file layout
 
@@ -239,12 +271,20 @@ tag/              ✅ built: Tag, TagRepository, TagService, TagController, cont
                   (contract/ has TagResponse, TagCreateRequest, TagUpdateRequest. No standalone
                   EntryTag entity -- Entry.tags is a plain @ManyToMany through an entry_tags
                   join table. See "Tags" below.)
-relation/         not built: Relation, RelationRepository, RelationService, RelationController, contract/
-relation/definition/  not built: RelationDefinition, RelationDefinitionRepository, contract/
-graph/            not built: GraphService, GraphController, GraphData/GraphNode/GraphEdge records
-search/           not built: SearchController for the general title/summary/content search
-                  checklist item. (EntryService already has a narrower title-only search method
-                  for the wikilink typeahead above — a future SearchController could absorb it.)
+relation/         ✅ built: Relation, RelationRepository, RelationService, RelationController, contract/
+                  (RelationService also owns RelationDefinition CRUD -- see relation/definition/
+                  below and "Relations & graph")
+relation/definition/  ✅ built: RelationDefinition, RelationDefinitionRepository,
+                  RelationDefinitionController, contract/ (CRUD logic itself lives in
+                  relation/RelationService, this controller just owns the separate
+                  /api/worlds/{worldId}/relation-definitions resource root)
+graph/            ✅ built: GraphService (worldGraph/entryGraph, BFS depth-capped at 5),
+                  GraphController, contract/GraphNode, GraphEdge, GraphResponse
+search/           ✅ built: SearchController for the general title/summary/content search
+                  checklist item, delegating to EntryService.searchEntries (a new
+                  EntryRepository @Query, case-insensitive substring match, title/summary
+                  matches ranked before content-only matches). EntryService's older
+                  title-only search method (the wikilink typeahead) is untouched.
 common/           ✅ built: GlobalExceptionHandler (@RestControllerAdvice: EntityNotFoundException→404,
                   IllegalArgumentException→400, {EntityExistsException,IllegalStateException}→409 —
                   services throw, controllers don't catch)
@@ -254,68 +294,92 @@ common/           ✅ built: GlobalExceptionHandler (@RestControllerAdvice: Enti
 
 Sidebar and top bar persist across entries, so prefer a single app shell with
 client-side view-swapping over full page reloads (`history.pushState` +
-dynamic content injection), rather than one HTML file per entry. What
-actually exists today is a much smaller slice of this than the full target
-below — no far-left rail, right rail, icon+chevron world dropdown, or graph
-yet — but the editor, tags, and sidebar/navigation slices
-(`editor.js`/`editor.css`, `js/tags.js`/`css/tags.css`,
-`js/sidebar.js`/`css/sidebar.css`) are real and do more than originally
-sketched here (wikilinks + view/edit mode; dynamic colored tags; a real
-folder/entry tree with drag-and-drop — not yet the general
-toolbar/syntax-highlighting/autosave this list originally described for the
-editor):
+dynamic content injection), rather than one HTML file per entry. Nearly the
+full target below now exists — far-left rail, right rail, and graph are all
+built; the world switcher is still a plain `<select>`, not the
+icon+chevron dropdown (see the World management checklist note):
 
 ```
-index.html            ✅ built (partial): top bar (world picker) + folder/entry tree sidebar +
-                       content panel (breadcrumb, icon toolbar, title input, tag row, editor).
-                       No far-left rail or right rail yet.
+index.html            ✅ built: top bar (world picker, search, theme toggle) + far-left icon
+                       rail + folder/entry tree sidebar + content panel (breadcrumb, icon
+                       toolbar, entry header, tag row, editor) + right icon rail with
+                       outline/backlinks/entry-graph panels.
 css/
   variables.css        not built — theme tokens still live as :root vars directly in base.css
   layout.css           not built — shell layout rules still live in base.css
-  base.css             ✅ built (not in the original sketch): baseline layout/typography for the
-                       current shell, dark-theme-only for now (no light/dark toggle yet)
-  editor.css           ✅ built, different scope than sketched: wikilink resolved/unresolved
+  base.css             ✅ built: baseline layout/typography, entry header/avatar/timestamp
+                       styling, plus a [data-theme="light"] override block redefining the same
+                       custom-property names for the theme toggle (see rail.css note below for
+                       why the rail itself isn't in this file)
+  editor.css           ✅ built, wider scope than sketched: wikilink resolved/unresolved
                        highlighting, autocomplete popup styling, view/edit-mode outline marker +
-                       cursor rules, minimalist icon-button toolbar. No header/bullet/bold token
-                       styling or toolbar-button styling yet (no general toolbar exists).
+                       cursor rules, extended header/bullet/bold/italic/code token styling, the
+                       full formatting toolbar's button styling, and rendered read-mode preview
+                       styling.
   tags.css              ✅ built (not in the original sketch, which put tag-pill styling in
                        components.css): tag pill colors/layout, color-swatch dot, add-tag form.
   sidebar.css            ✅ built (not in the original sketch): folder/entry tree rows,
                        drag-and-drop feedback (drag-over highlight, dragging opacity), the
                        "World root" drop-zone row, breadcrumb. See "Navigation" below.
-  components.css        not built — no dropdowns exist yet to style; tag pills and breadcrumb
-                       (the pieces of this that are built) live in tags.css/sidebar.css instead
+  graph.css              ✅ built (not in the original sketch): world-graph modal chrome, node/
+                       edge drawing (solid+labeled for Relations, dashed for wikilinks), and the
+                       new embedded right-rail entry-graph panel. See "Relations & graph" below.
+  rail.css               ✅ built (not in the original sketch): far-left and right icon rail
+                       strip layout/active-state styling, shared between both rails.
+  outline.css            ✅ built (not in the original sketch): outline panel TOC styling.
+  backlinks.css          ✅ built (not in the original sketch): "Linked from" panel list styling.
+  search.css             ✅ built (not in the original sketch): top-bar search dropdown styling.
+  components.css        not built — no world-switcher dropdown exists yet to style; tag pills,
+                       breadcrumb, and the other small components built so far live in their
+                       own feature-specific CSS files instead
 js/
-  api.js               ✅ built: fetch wrapper, now including searchEntryTitles() for the
-                       wikilink typeahead; listWorldTags/addEntryTag/removeEntryTag/updateTag for
-                       tags; getHierarchy/createFolder/deleteFolder/moveFolder/moveEntry for
-                       navigation
-  app.js               ✅ built (partial): world/entry CRUD wiring, view/edit mode state
+  api.js               ✅ built: fetch wrapper, including searchEntryTitles() (wikilink
+                       typeahead), searchWorld() (general search), listWorldTags/addEntryTag/
+                       removeEntryTag/updateTag (tags), getHierarchy/createFolder/deleteFolder/
+                       moveFolder/moveEntry (navigation), listEntryRelations/getEntryGraph/
+                       getWorldGraph (relations & graph)
+  app.js               ✅ built: world/entry CRUD wiring, view/edit mode state
                        (setEditing/onToggleEditing), auto-save-on-exit-edit, tag-row re-render
                        wiring (renderTags/onEntryTagsChanged), sidebar re-render wiring
-                       (renderSidebar/loadHierarchy), breadcrumb rendering (renderBreadcrumb --
-                       simple enough to live here rather than its own module). Not yet a real
-                       "shell bootstrap + view routing" — there's only one view.
-  editor.js             ✅ built, different scope than sketched: [[wikilink]] tokenizer +
-                       overlay renderer, click/dblclick routing (view-mode navigate vs.
-                       edit-mode caret-only), hover hand-cursor, [[-triggered autocomplete
-                       popup, Escape-to-exit-edit-mode callback. Textarea+overlay rendering (not
-                       contenteditable) — see the design doc. No toolbar button wiring, no
-                       header/bullet/bold syntax highlighting, no standalone autosave-while-typing
-                       (saving currently only happens via the Save button or on edit-mode exit).
+                       (renderSidebar/loadHierarchy), breadcrumb rendering (renderBreadcrumb),
+                       entry header rendering (renderTimestamps/renderEntryAvatar/hashToColor --
+                       simple enough to live here rather than their own module, same reasoning
+                       as the breadcrumb). Still not a full "shell bootstrap + view routing" —
+                       there's only one main view, the far-left rail's other modes are stubs.
+  editor.js             ✅ built, wider scope than sketched: [[wikilink]] tokenizer + overlay
+                       renderer, click/dblclick routing (view-mode navigate vs. edit-mode
+                       caret-only), hover hand-cursor, [[-triggered autocomplete popup,
+                       Escape-to-exit-edit-mode callback, extended header/bullet/bold/italic/
+                       inline-code/codeblock syntax highlighting, full toolbar button wiring
+                       (insert/wrap markdown at the cursor), live word count, and a rendered
+                       DOM preview for view mode. Textarea+overlay rendering (not
+                       contenteditable) — see the design doc. No standalone autosave-while-typing
+                       (saving still only happens via the Save button or on edit-mode exit).
   sidebar.js            ✅ built, different scope than sketched: client-side folder/entry tree
                        building from the flat hierarchy response, collapse/expand, folder
                        create/delete/nested-create, entry create/delete (routed back to app.js --
                        see "Navigation" below for why), and drag-and-drop for both entries and
                        folders. See "Navigation" below.
-  entry-view.js          not built — header (icon/summary)/metadata display not implemented yet
-                       (breadcrumb is built, but lives in app.js -- see above)
+  outline.js             ✅ built (not in the original sketch, which called this out as separate
+                       from entry-view.js): parses #{1,6} headings client-side from
+                       contentMarkdown, click-to-jump in both edit and view mode.
+  backlinks.js           ✅ built (not in the original sketch): wikilink-derived "Linked from"
+                       panel. See "Relations & graph" below for why it's wikilink-derived rather
+                       than Relation-based for now.
   tags.js                ✅ built: pill rendering, add-tag form (with a <datalist> of the
                        world's existing tag names), remove button, color-swatch dot that opens a
                        native <input type="color">. See "Tags" below.
-  graph.js                not built
-  search.js               not built — see the search/ backend note above
-  theme.js                 not built — no light/dark toggle yet
+  graph.js                ✅ built, wider scope than sketched: originally just the wikilink-
+                       derived graph modal, now also fetches/merges GET /api/graph/world|entry
+                       (solid labeled Relation edges + dashed wikilink edges in one view) and
+                       renders both the existing world-graph modal and a new small embedded
+                       right-rail entry-graph panel (radial layout) off a shared
+                       compute/layout/draw pipeline. See "Relations & graph" below.
+  search.js               ✅ built: debounced (~150-200ms, AbortController-cancelled) top-bar
+                       search dropdown against GET /api/worlds/{worldId}/search, click-to-navigate.
+  theme.js                 ✅ built (not in the original sketch): toggles
+                       document.documentElement.dataset.theme between "light"/"dark",
+                       persists to localStorage, defaults dark.
 assets/icons/          not built — the toolbar's pencil/save/trash icons are inline <svg> in
                        index.html rather than separate files; revisit this if icon reuse grows
 ```
@@ -333,8 +397,13 @@ GET    /api/worlds/{worldId}/hierarchy        ✅ flat {folders: [FolderResponse
                                                # entries: [EntryResponse...]} -- not nested; the
                                                # sidebar (js/sidebar.js) builds the tree client-side.
                                                # See "Navigation" below.
-GET    /api/worlds/{worldId}/search?q=...     # general title/summary/content search (checklist
-                                               # item) -- distinct from the narrower endpoint below
+GET    /api/worlds/{worldId}/search?q=&limit=  ✅ general title/summary/content search, backing the
+                                               # top-bar search box (js/search.js). SearchResultResponse:
+                                               # {id,title,summary,icon,folderId}; blank/missing q -> [],
+                                               # not 400; limit defaults to 20. Case-insensitive substring
+                                               # match, title matches ranked before summary before
+                                               # content-only matches, then alphabetical. Distinct from
+                                               # the narrower typeahead below.
 
 GET    /api/worlds/{worldId}/entries/search?q=&limit=   ✅ entry-title-only typeahead backing the
                                                # wikilink [[-autocomplete popup (EntryTitleSuggestion:
@@ -362,9 +431,12 @@ DELETE /api/folders/{id}                      ✅ 409 if the folder still has su
 GET    /api/worlds/{worldId}/entries          ✅
 GET    /api/entries/{id}                      ✅
 POST   /api/worlds/{worldId}/entries          ✅ now also takes folderId? (omit/null = world root)
-PATCH  /api/entries/{id}                      ✅ now also takes folderId?, same null-means-unchanged
-                                               # convention as title/contentMarkdown -- see the move
-                                               # endpoint below for why that's not enough for drag-and-drop
+PATCH  /api/entries/{id}                      ✅ now also takes folderId? and summary?, same
+                                               # null-means-unchanged convention as title/contentMarkdown
+                                               # -- summary backs the entry header's subtitle field (see
+                                               # the Entry viewing checklist item); see the move endpoint
+                                               # below for why folderId being null-means-unchanged isn't
+                                               # enough for drag-and-drop
 PATCH  /api/entries/{id}/move                 ✅ {folderId} -- same reasoning/pattern as the folder
                                                # move endpoint above; always applies folderId,
                                                # including null. Drives the sidebar's drag-and-drop
@@ -388,14 +460,35 @@ PATCH  /api/tags/{id}                         ✅ {name?, color?} -- edits the t
 # tags: [{id,worldId,name,color}] on every list/get/create/update/tag-mutation response, so a
 # separate fetch was redundant given how small/always-needed the tag list is.)
 
-GET    /api/worlds/{worldId}/relation-definitions
-POST   /api/worlds/{worldId}/relation-definitions
-GET    /api/entries/{id}/relations
-POST   /api/relations
-DELETE /api/relations/{id}
+GET    /api/worlds/{worldId}/relation-definitions   ✅ List<RelationDefinitionResponse
+                                               # {id,worldId,name,reverseName}>
+POST   /api/worlds/{worldId}/relation-definitions   ✅ {name, reverseName} both required non-blank -> 201;
+                                               # 400 if blank
+GET    /api/entries/{id}/relations            ✅ both directions combined (outgoing: label=definition
+                                               # .name; incoming: label=definition.reverseName), sorted
+                                               # by relatedEntryTitle. RelationResponse:
+                                               # {id,relationDefinitionId,relatedEntryId,
+                                               # relatedEntryTitle,relatedEntryIcon,label,outgoing}.
+                                               # Built entirely inside RelationService's @Transactional
+                                               # method, not mapped in the controller -- see the
+                                               # "Relations & graph" section below for why that matters
+                                               # (a real bug found during manual verification).
+POST   /api/relations                         ✅ {sourceEntryId,targetEntryId,relationDefinitionId} ->
+                                               # 201 RelationResponse (outgoing=true, label=name); 400
+                                               # self-relation/cross-world mismatch; 404 id not found;
+                                               # 409 duplicate relation of the same type in either
+                                               # direction (different types between the same two
+                                               # entries are still allowed)
+DELETE /api/relations/{id}                    ✅ 204; 404 if not found
 
-GET    /api/graph/world/{worldId}
-GET    /api/graph/entry/{id}?depth=1
+GET    /api/graph/world/{worldId}             ✅ GraphResponse {nodes:[{id,title,icon}],
+                                               # edges:[{sourceId,targetId,label,relationDefinitionId}]}
+                                               # -- every Entry in the world as nodes, every Relation
+                                               # whose source+target both belong to the world as edges
+GET    /api/graph/entry/{id}?depth=1          ✅ same shape, BFS-expanded from {id} out to `depth` hops
+                                               # (both directions), depth defaults to 1, 0 -> center node
+                                               # only, clamped 0-5 (400 outside that range), 404 if the
+                                               # entry doesn't exist
 ```
 
 ## Editor implementation notes
@@ -413,23 +506,25 @@ never in the div that gets rebuilt, so the overlay "surviving
 re-tokenization" is automatic by construction, with no Range save/restore
 needed the way a naive contenteditable approach would require).
 
-**What's actually highlighted today is narrower than the full spec:** only
-`[[wikilink]]` tokens are tokenized and styled (see the next section) —
-there is no header/bullet/bold/code regex pass yet, no formatting toolbar,
-and no word count / `Markdown · N words` footer label. The tokenizer is
-structured as one regex pass over the source producing a token list consumed
-by the overlay renderer, so adding header/bullet/bold passes later is meant
-to be additive to `js/editor.js`, not a rewrite. Toolbar buttons that
-insert/wrap markdown syntax at the cursor (bold/italic/heading dropdown/etc.)
-are still unbuilt entirely — the only toolbar that exists is three
-icon-only buttons (Edit/Save/Delete, see below), which don't touch markdown
-syntax at all.
+**Highlighting and the toolbar are now built to the full spec.** The
+tokenizer is one ordered regex pass (codeblock → block-line header/
+blockquote/list → inline wikilink/code/bold/italic) over the source
+producing a token list consumed by the overlay renderer — additive to the
+original wikilink-only pass, not a rewrite, as originally planned. The
+formatting toolbar (undo/redo, headings dropdown, bold/italic/underline/
+strikethrough, link, image, bullet/numbered list, blockquote, inline code,
+fenced code block) inserts/wraps markdown syntax at the cursor rather than
+manipulating a rich-text DOM, sitting alongside the original three
+icon-only buttons (Edit/Save/Delete). Word count and the `Markdown · N
+words` footer label are computed client-side from the raw text on every
+keystroke. View mode additionally renders a real DOM markdown preview
+(`renderPreviewDOM` in `js/editor.js`) rather than just styled source —
+beyond what this section originally called for, landed alongside the rest
+of the toolbar/highlighting work.
 
-Word count and the `Markdown` label in the footer are still meant to be
-computed client-side from the raw text once built. Persist
-`Entry.contentMarkdown` as-is — no server-side rendering needed for the
-editor itself (a separate render pass can be added later if a "preview" view
-is wanted).
+Persist `Entry.contentMarkdown` as-is — no server-side rendering for the
+editor itself; the preview above is a client-side render pass over the same
+raw markdown, not a stored second copy.
 
 ## Wikilink references & edit mode (implemented)
 
@@ -722,10 +817,6 @@ same effect naturally via `.tree-children`'s per-level indentation, no
 extra handling needed for that specifically.
 
 **Explicit non-goals (deliberately deferred, not forgotten):**
-- The far-left icon rail (notes/library/database/graph mode switcher) —
-  its other modes don't have views to switch to yet, so a rail of mostly-
-  dead icons was skipped for now; see the Feature checklist's Navigation
-  note and "Suggested implementation order" step 4 below.
 - The world switcher as an icon+name+chevron dropdown, and a copy of it in
   the sidebar header — still a plain `<select>` in the top bar; see the
   Feature checklist's World management note.
@@ -733,6 +824,105 @@ extra handling needed for that specifically.
   drag-and-drop or the "↑ to root" button (e.g. a "move to..." picker
   dialog) — `PATCH /api/folders/{id}` supports renaming server-side, there's
   just no UI trigger for it yet.
+
+## Relations & graph (implemented)
+
+Backend (`relation/`, `relation/definition/`, `graph/`) and the graph-view
+frontend work landed together; relation-*creation* UI (a form to pick two
+entries + a relation type) did not — only display/consumption of relations
+already created via the REST API directly. See the REST API sketch above
+for exact contracts.
+
+**Backend:**
+- `RelationService` folds `RelationDefinition` CRUD together with `Relation`
+  logic (they're always used together), while `RelationDefinitionController`
+  stays a separate controller class since it owns a different resource root.
+- `RelationService.createRelation` validation order: self-relation check
+  (cheap, before any DB hit) → resolve source/target/definition (404 if
+  missing) → cross-world guard (all three must share one `World`) →
+  duplicate-in-either-direction check scoped to the relation *type* (two
+  entries can still have relations of different types between them).
+- `RelationResponse` is perspective-aware: `GET /api/entries/{id}/relations`
+  returns both directions combined, flipping `label`/`outgoing` depending on
+  whether `{id}` is the relation's source (label = `definition.name`) or
+  target (label = `definition.reverseName`).
+- **A real bug found and fixed during manual end-to-end verification (not
+  caught by `compileJava`/tests):** the original implementation mapped
+  `Relation` → `RelationResponse` in the *controller*, outside
+  `RelationService`'s `@Transactional` boundary, relying on
+  `Stream.sorted()` having incidentally initialized the related entry's lazy
+  proxy as a side effect of comparing elements. `Stream.sorted()` skips
+  calling the comparator entirely for a 0/1-element stream, so a
+  single-relation entry left its related `Entry` proxy uninitialized; lazily
+  touching it later (under `spring.jpa.open-in-view`, which reopens a
+  connection in autocommit mode outside a real transaction) then failed
+  specifically for the `contentMarkdown` `@Lob`/CLOB column (Postgres
+  large-object streaming requires a non-autocommit transaction). Fixed by
+  building `RelationResponse` inside the transactional service method
+  instead of leaving it to an incidental side effect. Worth remembering if
+  anyone adds another endpoint that maps lazy-loaded cross-entity fields —
+  do the mapping *inside* the `@Transactional` method, not after it returns.
+- `GraphService` is genuinely read-only/stateless (no entity, no repository
+  of its own) — `worldGraph` returns every `Entry` in a world as nodes and
+  every `Relation` between them as edges; `entryGraph` BFS-expands from one
+  entry out to a given depth (both relation directions counted as
+  neighbors), depth clamped to `0..5` server-side.
+
+**Frontend (`js/graph.js`, `css/graph.css`):**
+- The pre-existing wikilink-derived graph (a client-side computation over
+  `[[wikilink]]` references already in `state.entries`, predating this
+  system entirely) and the new `Relation`-backed graph are **merged into one
+  view**, not kept as separate toggleable modes — nodes are deduped by entry
+  id, edges are tagged `kind: 'relation' | 'wikilink'` so `drawEdge` renders
+  solid+labeled lines for formal relations and dashed lines for wikilink
+  references.
+- The **full-world graph stays the pre-existing modal** (opened from the top
+  bar's "Graph view" button or the far-left rail's graph icon) — a
+  force-directed layout of an entire world's entries needs real screen
+  space a narrow rail panel can't give it.
+- The **per-entry graph is a new small embedded panel in the right rail**
+  (radial layout, `renderEntryPanel`), reusing the same
+  compute/layout/draw pipeline as the modal via a `createRenderer()`
+  factory so the two views have independent render state.
+- Both were verified end-to-end against a live app + Postgres instance:
+  world graph modal shows the merged edge set correctly; the embedded panel
+  shows the open entry's neighbors; deleting a relation updates both.
+
+**Known gaps, deliberately deferred:**
+- No relation-creation UI — `RelationDefinition`/`Relation` rows currently
+  only get created by calling the REST API directly. A form to pick two
+  entries + a relation type (and create new relation types inline, the way
+  tags do) is the natural next step but wasn't scoped into this pass.
+- Backlinks (see "Right panel" below) don't yet have a "Related via ..."
+  section sourced from formal `Relation`s — only the wikilink-derived
+  section exists so far, since relation-creation UI doesn't exist yet to
+  populate it meaningfully.
+
+## Right panel (implemented)
+
+Mirrors the left rail (`css/rail.css`), toggling three panels — only one
+open at a time. All three are read-only/display-only; none has its own
+creation UI (headings come from the editor, wikilinks from existing
+content, relations aren't creatable from the UI at all yet — see above).
+
+- **Outline** (`js/outline.js`, `css/outline.css`): `#{1,6}` headings parsed
+  client-side from the open entry's `contentMarkdown`, rendered as an
+  indented, clickable TOC. Clicking jumps the textarea caret to that
+  heading's line in edit mode, or scrolls the matching rendered-preview
+  heading into view in view mode.
+- **Backlinks** (`js/backlinks.js`, `css/backlinks.css`): a "Linked from"
+  list of every *other* entry whose `contentMarkdown` resolves a
+  `[[This Entry's Title]]` reference (via `js/wikilink-parser.js` +
+  `state.entries`, same resolution convention the editor's own wikilink
+  highlighting uses) — **wikilink-derived, not `Relation`-based**, a
+  deliberate choice made because wikilinks are what users actually create
+  today and formal relations have no creation UI yet (would otherwise show
+  empty for a long time). Verified against two cross-linked entries during
+  manual testing. A second "Related via ..." section sourced from formal
+  `Relation`s is the natural next step once relation-creation UI exists —
+  intentionally left as a separate future section rather than merged into
+  this one, since the two have different semantics.
+- **Entry relation graph**: see "Relations & graph" above.
 
 ## Build & run
 
@@ -761,47 +951,49 @@ schema stabilizes). OpenAPI docs at `/openapi`.
    nested tree; the client builds the tree — see that section's Data model
    note.)
 3. ✅ `Entry` entity (CRUD) with `contentMarkdown` storage.
-4. Static app shell: top bar, far-left rail, tree sidebar rendering from the
-   hierarchy endpoint. **Partially done:** top bar + a real folder/entry
+4. ✅ Static app shell: top bar, far-left rail, tree sidebar rendering from
+   the hierarchy endpoint. Top bar + far-left rail (notes/graph wired,
+   library/database visibly-disabled placeholders) + a real folder/entry
    tree (with drag-and-drop, collapse/expand, nested creation — see
-   "Navigation" above) now exist; the far-left rail does not — deliberately
-   deferred, since its other modes (library/database/graph) have no views
-   to switch to yet.
-5. Entry view: header, breadcrumb, metadata, content panel (read-only first).
-   **Partially done, out of order:** the content panel's read-only-first
-   behavior exists (see "Wikilink references & edit mode" above), the tag
-   row renders too (step 6, below), and the breadcrumb now renders too (see
-   "Navigation" above) — but the entry header (icon/title/summary as a
-   distinct section) and created/modified-timestamp metadata display don't
-   — the panel currently shows a breadcrumb + title input + tag row +
-   content editor as sibling elements, no timestamps and no dedicated
-   header section.
-6. `Tag` + `EntryTag`; tag pills on the entry header. **Done, out of order** —
-   landed ahead of this step on direct request, alongside wikilinks/edit
-   mode (step 7). See "Tags" above. As noted in step 5, the pills render
-   under the title rather than in a dedicated entry header section, since
-   that section doesn't exist yet; no `EntryTag` entity either (`Entry.tags`
-   is a plain `@ManyToMany`, see Domain model).
-7. Markdown editor: toolbar + syntax highlighting + save/autosave.
-   **Partially done, out of order:** `[[wikilink]]` tokenizing/highlighting,
-   click-to-navigate, autocomplete, and save-on-edit-mode-exit all exist (see
-   above) — landed ahead of this step on direct request. The general
-   formatting toolbar (bold/italic/heading dropdown/etc.), header/bullet/bold
-   syntax highlighting, word count, and per-keystroke autosave are still
-   unbuilt.
-8. `RelationDefinition` + `Relation` + `GraphService`; right-panel graph.
-   **Not started.** Note: resolved wikilinks (step 7) are *not* wired into
-   this system yet — see the design doc's non-goals.
-9. Right panel: outline (parse headings client-side from `contentMarkdown`),
-   backlinks (reverse relation lookup). **Not started.**
-10. Search endpoint wired to the top search bar. **Not started** as a UI
-    search box; a narrower entry-title typeahead exists for the wikilink
-    autocomplete (step 7) — see the REST API sketch's distinction.
-11. Theme toggle (CSS custom-property tokens, light/dark, `localStorage`).
-    **Not started** — the current UI is dark-theme-only, hardcoded in
-    `base.css`.
+   "Navigation" above) all built.
+5. ✅ Entry view: header, breadcrumb, metadata, content panel (read-only
+   first). Content panel read-only-first behavior, tag row, breadcrumb, and
+   now a real entry header block (letter-avatar, summary field, Created/
+   Last modified timestamps) all built — see the Entry viewing checklist
+   item above.
+6. ✅ `Tag` + `EntryTag`; tag pills on the entry header. Landed ahead of this
+   step on direct request, alongside wikilinks/edit mode (step 7). See
+   "Tags" above. No standalone `EntryTag` entity (`Entry.tags` is a plain
+   `@ManyToMany`, see Domain model).
+7. ✅ Markdown editor: toolbar + syntax highlighting + save/autosave.
+   `[[wikilink]]` tokenizing/highlighting, click-to-navigate, autocomplete,
+   and save-on-edit-mode-exit landed ahead of this step on direct request;
+   the general formatting toolbar, header/bullet/bold/italic/code syntax
+   highlighting, and word count have since caught up (see "Editor
+   implementation notes" above). Per-keystroke autosave is still not
+   built — saving happens via the Save button or on edit-mode exit only.
+8. ✅ `RelationDefinition` + `Relation` + `GraphService`; right-panel graph.
+   Backend and graph view both built (merging wikilink-derived and formal
+   `Relation` edges into one picture) — see "Relations & graph" above. Note:
+   resolved wikilinks are shown in the *graph* now (as dashed edges), but
+   still aren't *stored* as `Relation` rows — a wikilink and a formal
+   relation remain two independent things, per the design doc's original
+   non-goal; no relation-creation UI exists yet either.
+9. ✅ Right panel: outline (parse headings client-side from
+   `contentMarkdown`), backlinks. Both built — see "Right panel" above.
+   Backlinks is wikilink-derived rather than the originally-sketched
+   "reverse relation lookup", since relation-creation UI doesn't exist yet
+   to populate a Relation-based version meaningfully.
+10. ✅ Search endpoint wired to the top search bar. `GET
+    /api/worlds/{worldId}/search` + `js/search.js`, distinct from the
+    narrower entry-title typeahead used by the wikilink autocomplete (step
+    7) — see the REST API sketch's distinction.
+11. ✅ Theme toggle (CSS custom-property tokens, light/dark, `localStorage`).
+    `js/theme.js` + a `[data-theme="light"]` override block in `base.css`
+    reusing the same custom-property names as the dark `:root` default.
 12. Notifications bell stays a static placeholder unless scoped separately.
-    **N/A yet** — no top bar icons beyond the world picker exist.
+    **Still N/A** — no notification feed/backend exists, and none of the
+    other top-bar icon work above touched it; out of scope unless asked.
 
 ## Cleanup items found while surveying the repo
 
@@ -810,11 +1002,12 @@ schema stabilizes). OpenAPI docs at `/openapi`.
   from an earlier pass of this list are resolved. `.idea/dataSources.xml`
   wasn't rechecked for a stale MySQL entry; low priority since it's IDE
   metadata, not something Gradle/the app reads.
-- `docs/` is no longer empty — it now has
+- ✅ Done: `docs/` is no longer empty — it now has
   `docs/design/autocomplete-and-entity-references.md` (the wikilink/edit-mode
-  design doc referenced throughout this file). Still worth adding
-  API-contract/TODO docs for the rest of the rewrite as it produces more
-  real contracts worth documenting.
-- `2feef0b9-fc72-4a61-9c50-3c6d510e16f0.png` (the design reference) is
-  **still** untracked at the repo root; consider moving it into
-  `docs/design/` and committing it so the reference survives future cleanups.
+  design doc referenced throughout this file), and this file plus the design
+  reference PNG are both committed (previously untracked). Still worth
+  adding API-contract/TODO docs for the Relations/graph/search work as it
+  matures further (e.g. a relation-creation UI design doc, once that gets
+  built).
+- No outstanding cleanup items beyond the `.idea/dataSources.xml` low-priority
+  note above.
