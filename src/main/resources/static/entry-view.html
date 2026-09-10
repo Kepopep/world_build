@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>World Building - Entry View</title>
+    <link rel="stylesheet" href="entry-view.css">
+</head>
+<body>
+<div class="app">
+
+    <!-- ============ TOP NAVBAR ============ -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <a class="brand" href="graph-visualization.html" title="К графу связей">
+                <span class="brand-icon">◆</span>
+                <span class="brand-name">Миры</span>
+            </a>
+            <button class="icon-btn" id="backBtn" title="Назад">←</button>
+            <div class="world-switcher" id="worldSwitcher">
+                <span class="world-name" id="worldName">—</span>
+                <span class="chevron">⌄</span>
+                <div class="world-dropdown" id="worldDropdown" hidden></div>
+            </div>
+        </div>
+
+        <div class="topbar-center">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" placeholder="Поиск по миру...">
+            </div>
+        </div>
+
+        <div class="topbar-right">
+            <button class="icon-btn" id="themeToggle" title="Сменить тему">☀</button>
+            <button class="icon-btn" id="notifBtn" title="Уведомления">
+                🔔
+                <span class="badge" id="notifBadge">2</span>
+            </button>
+            <button class="icon-btn avatar-btn" id="userBtn" title="Профиль">👤</button>
+        </div>
+    </header>
+
+    <div class="body-layout">
+
+        <!-- ============ LEFT SIDEBAR: HIERARCHY ============ -->
+        <aside class="sidebar-left">
+            <div class="sidebar-title">Иерархия сущностей</div>
+            <div class="tree" id="hierarchyTree"></div>
+
+            <div class="sidebar-left-footer">
+                <button class="icon-btn" title="Мои сущности">📁</button>
+                <button class="icon-btn" id="refreshTreeBtn" title="Обновить">⟳</button>
+                <button class="icon-btn accent" id="addEntryBtn" title="Добавить сущность">+</button>
+            </div>
+        </aside>
+
+        <!-- ============ MAIN CONTENT ============ -->
+        <main class="main-content">
+            <div class="entry-card">
+                <div class="entry-cover" id="entryCover">
+                    <div class="entry-cover-overlay"></div>
+                    <div class="entry-cover-heading">
+                        <div class="entry-title-row">
+                            <span class="entry-icon" id="entryIcon">👑</span>
+                            <h1 id="entryName">—</h1>
+                        </div>
+                        <p class="entry-subtitle" id="entrySubtitle"></p>
+                    </div>
+                </div>
+
+                <div class="entry-toolbar">
+                    <div class="entry-tags" id="entryTags"></div>
+                    <div class="entry-actions">
+                        <button class="icon-btn" id="editEntryBtn" title="Редактировать">✎</button>
+                        <button class="icon-btn" id="copyLinkBtn" title="Скопировать ссылку">🔗</button>
+                        <button class="icon-btn danger" id="deleteEntryBtn" title="Удалить">🗑</button>
+                    </div>
+                </div>
+
+                <nav class="tabs" id="entryTabs">
+                    <button class="tab active" data-tab="description">Описание</button>
+                    <button class="tab" data-tab="relations">Связи</button>
+                    <button class="tab" data-tab="notes">Заметки</button>
+                </nav>
+
+                <section class="tab-panel active" id="panel-description">
+                    <div id="descriptionContent" class="markdown-body"></div>
+                </section>
+
+                <section class="tab-panel" id="panel-relations">
+                    <div class="panel-actions-row">
+                        <button class="quick-action-btn" id="addRelationBtn">➕ Добавить связь</button>
+                    </div>
+                    <div id="relationsContent" class="relations-list"></div>
+                </section>
+
+                <section class="tab-panel" id="panel-notes">
+                    <div id="notesContent" class="notes-list"></div>
+                    <form class="note-form" id="noteForm">
+                        <textarea id="noteInput" placeholder="Добавить заметку..." required></textarea>
+                        <button type="submit">Добавить заметку</button>
+                    </form>
+                </section>
+            </div>
+        </main>
+
+        <!-- ============ RIGHT SIDEBAR ============ -->
+        <aside class="sidebar-right">
+            <div class="panel">
+                <div class="panel-title">Краткая информация</div>
+                <div class="info-list" id="quickInfo"></div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Связанные сущности</div>
+                <div class="related-list" id="relatedEntities"></div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Быстрые действия</div>
+                <div class="quick-actions">
+                    <button class="quick-action-btn" id="qaEdit">✎ Редактировать</button>
+                    <button class="quick-action-btn" id="qaCreateRelated">➕ Добавить дочернюю сущность</button>
+                    <button class="quick-action-btn" id="qaAddRelation">🔗 Связать с сущностью</button>
+                    <button class="quick-action-btn" id="qaAddNote">📝 Добавить заметку</button>
+                    <button class="quick-action-btn danger" id="qaDelete">🗑 Удалить сущность</button>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Навигация</div>
+                <div class="nav-list" id="entryNav"></div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============ CREATE / EDIT ENTRY MODAL ============ -->
+<div class="modal-overlay" id="entryModalOverlay" hidden>
+    <div class="modal">
+        <div class="modal-header">
+            <h2 id="entryModalTitle">Создать сущность</h2>
+            <button type="button" class="icon-btn" id="entryModalCloseBtn" title="Закрыть">✕</button>
+        </div>
+        <form id="entryModalForm" class="modal-body">
+            <label class="field">
+                <span class="field-label">Название</span>
+                <input type="text" id="entryFieldName" required maxlength="200">
+            </label>
+            <label class="field">
+                <span class="field-label">Титул / подзаголовок</span>
+                <input type="text" id="entryFieldTitle" required maxlength="300">
+            </label>
+            <label class="field">
+                <span class="field-label">Тип</span>
+                <select id="entryFieldType"></select>
+            </label>
+            <label class="field">
+                <span class="field-label">Родитель</span>
+                <select id="entryFieldParent"></select>
+            </label>
+            <label class="field">
+                <span class="field-label">Описание</span>
+                <textarea id="entryFieldDescription" rows="5"></textarea>
+            </label>
+            <div class="field-error" id="entryFieldError" hidden></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="entryModalCancelBtn">Отмена</button>
+                <button type="submit" class="btn-primary" id="entryModalSubmitBtn">Создать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ============ CREATE WORLD MODAL ============ -->
+<div class="modal-overlay" id="worldModalOverlay" hidden>
+    <div class="modal modal-small">
+        <div class="modal-header">
+            <h2>Создать мир</h2>
+            <button type="button" class="icon-btn" id="worldModalCloseBtn" title="Закрыть">✕</button>
+        </div>
+        <form id="worldModalForm" class="modal-body">
+            <label class="field">
+                <span class="field-label">Название мира</span>
+                <input type="text" id="worldFieldName" required maxlength="200">
+            </label>
+            <div class="field-error" id="worldFieldError" hidden></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="worldModalCancelBtn">Отмена</button>
+                <button type="submit" class="btn-primary">Создать</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ============ CREATE RELATION MODAL ============ -->
+<div class="modal-overlay" id="relationModalOverlay" hidden>
+    <div class="modal modal-small">
+        <div class="modal-header">
+            <h2>Добавить связь</h2>
+            <button type="button" class="icon-btn" id="relationModalCloseBtn" title="Закрыть">✕</button>
+        </div>
+        <form id="relationModalForm" class="modal-body">
+            <label class="field">
+                <span class="field-label">Сущность</span>
+                <select id="relationFieldTarget" required></select>
+            </label>
+            <label class="field">
+                <span class="field-label">Тип связи</span>
+                <select id="relationFieldDefinition"></select>
+            </label>
+
+            <button type="button" class="link-toggle" id="relationNewDefinitionToggle">+ Новый тип связи</button>
+
+            <div id="relationNewDefinitionFields" hidden>
+                <label class="field">
+                    <span class="field-label">Название (например «правит»)</span>
+                    <input type="text" id="relationFieldDefName" maxlength="100">
+                </label>
+                <label class="field">
+                    <span class="field-label">Обратное название (например «управляется»)</span>
+                    <input type="text" id="relationFieldDefReverseName" maxlength="100">
+                </label>
+            </div>
+
+            <div class="field-error" id="relationFieldError" hidden></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="relationModalCancelBtn">Отмена</button>
+                <button type="submit" class="btn-primary" id="relationModalSubmitBtn">Добавить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="entry-view.js"></script>
+</body>
+</html>

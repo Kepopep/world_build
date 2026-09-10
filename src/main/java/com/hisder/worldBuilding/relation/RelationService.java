@@ -103,7 +103,10 @@ public class RelationService {
                 .findBySourceId(entryId)
                 .stream()
                 .map(relation -> new RelationResponse(
+                        relation.getId(),
                         relation.getTarget().getId(),
+                        relation.getTarget().getName(),
+                        relation.getTarget().getType() != null ? relation.getTarget().getType().name() : null,
                         relation.getRelationDefinition().getName(),
                         true  // isOutgoing = true
                 ))
@@ -113,7 +116,10 @@ public class RelationService {
                 .findByTargetId(entryId)
                 .stream()
                 .map(relation -> new RelationResponse(
+                        relation.getId(),
                         relation.getSource().getId(),
+                        relation.getSource().getName(),
+                        relation.getSource().getType() != null ? relation.getSource().getType().name() : null,
                         relation.getRelationDefinition().getReverseName(),
                         false  // isOutgoing = false
                 ))

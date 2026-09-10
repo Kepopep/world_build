@@ -108,7 +108,11 @@ public class GraphService {
                         entry.getDescription() != null
                                 ? entry.getDescription()
                                 : "",
-                        getEntryType(entry)
+                        entry.getType() != null
+                                ? entry.getType().name()
+                                : getEntryType(entry),
+                        entry.getWorldId(),
+                        entry.getParentId()
                 ))
                 .collect(Collectors.toList());
 
@@ -117,6 +121,7 @@ public class GraphService {
                         relation.getSource().getId(),
                         relation.getTarget().getId(),
                         relation.getRelationDefinition().getName(),
+                        relation.getRelationDefinition().getReverseName(),
                         relation.getId()
                 ))
                 .collect(Collectors.toList());
@@ -201,7 +206,9 @@ public class GraphService {
             Long id,
             String title,
             String description,
-            String type
+            String type,
+            Long worldId,
+            Long parentId
     ) {
     }
 
@@ -209,6 +216,7 @@ public class GraphService {
             Long source,
             Long target,
             String relationName,
+            String reverseRelationName,
             Long relationId
     ) {
     }
