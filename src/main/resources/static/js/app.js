@@ -92,6 +92,29 @@ document.addEventListener("DOMContentLoaded", () => {
   els.entryGraphBtn.addEventListener("click", onOpenEntryGraph);
   els.worldGraphBtn.addEventListener("click", onOpenWorldGraph);
   els.graphModalClose.addEventListener("click", () => window.graph.close());
+  // Click-outside-to-close: #graph-modal is the full-screen dimmed overlay,
+  // .modal-panel the actual box inside it -- a click only reaches the
+  // overlay's own listener as event.target === els.graphModal when it
+  // didn't land on (and bubble up from) the panel or anything in it,
+  // exactly the "outside the panel" case. Guards against the graph canvas's
+  // own click handling (node click-to-navigate, drag) already having
+  // stopped/consumed the event -- those never bubble this far as a plain
+  // click on the overlay itself.
+  els.graphModal.addEventListener("click", (e) => {
+    if (e.target === els.graphModal) {
+      window.graph.close();
+    }
+  });
+  // Escape closes the graph modal from anywhere (the canvas has no natural
+  // focus target to hang a scoped keydown listener off of, unlike the
+  // title/summary/content Escape handling below) -- scoped to only act
+  // while the modal is actually open so it never interferes with editor.js's
+  // own Escape handling (autocomplete-close / exit-edit-mode) elsewhere.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !els.graphModal.hidden) {
+      window.graph.close();
+    }
+  });
   // Title input also drives the header avatar's letter/color live, not just
   // on the next openEntry()/save -- see renderEntryAvatar().
   els.entryTitle.addEventListener("input", () => {
