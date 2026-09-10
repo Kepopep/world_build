@@ -1,0 +1,184 @@
+/* Wikilink editor overlay + autocomplete popup styling, plus the
+   view/edit-mode toggle (entries open read-only by default -- see
+   #edit-toggle-btn wiring in js/app.js -- and only become editable after
+   clicking Edit).
+   Layered on top of css/base.css (which still owns #entry-content's
+   box/typography rules) -- this file only adds the overlay/autocomplete/
+   edit-mode pieces described in
+   docs/design/autocomplete-and-entity-references.md sections 2.1-2.5. Left
+   separate from base.css per that doc: this is not folded into a fuller
+   variables.css/layout.css split, since that split doesn't exist yet in
+   this skeleton. */
+
+/* Edit/Save/Delete toolbar: upper-left of the content panel, above the
+   title, in that fixed order. */
+.content-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  /* No margin-bottom -- #editor's own flex `gap` (base.css) already spaces
+     this from the title input below, consistent with the spacing between
+     every other row in the panel. */
+}
+
+/* Minimalist icon-only buttons -- a single small glyph, no label, so the
+   toolbar reads as a quiet row of controls rather than three full-size
+   buttons. Overrides base.css's generic `button` padding (a class selector
+   beats a bare-tag one, so no !important needed). */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+#edit-toggle-btn[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+/* Save reuses base.css's neutral button look rather than its own accent
+   fill -- only Delete gets a distinct color (its existing button.danger /
+   #delete-btn rule in base.css already does that), so the toolbar doesn't
+   read as two "important" buttons and one plain one. Same specificity as
+   base.css's #save-btn rule (one ID each); this file is linked after
+   base.css, so it wins by source order. */
+#save-btn {
+  background: var(--color-panel);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+#save-btn:hover:not(:disabled) {
+  background: var(--color-bg-alt);
+}
+
+/* Visual marker that edit mode is on: an outline (not border, so it doesn't
+   shift layout) around the fields that became editable, in the same accent
+   color already used elsewhere for active/selected state (e.g.
+   .entry-list-item.active, #save-btn). */
+#editor.editing #entry-title,
+#editor.editing #entry-content-wrapper {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+#entry-content-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 300px;
+}
+
+#entry-content-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid transparent;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: auto;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+#entry-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  color: transparent;
+  caret-color: var(--color-text);
+  background: transparent;
+  /* Independent resizing would desync the textarea's box from the
+     absolutely-positioned overlay behind it, so it's disabled here. */
+  resize: none;
+}
+
+/* View mode: normal arrow, not the text-input I-beam, since nothing here is
+   typeable (the title's own mousedown listener in app.js blocks focus/caret/
+   selection the same way editor.js's onTextareaMouseDown does for the
+   content textarea). editor.js's hover handling (onTextareaMouseMove) still
+   swaps #entry-content to a hand cursor over an actual [[reference]] via an
+   inline style, which overrides this. Edit mode gets no override on either
+   field, so it falls back to the ordinary text-input cursor. Also strips any
+   browser default focus ring: app.js's setEditing(false) blurs both fields
+   when leaving edit mode, but this is a CSS-level safety net for that --
+   left showing, a stray focus ring reads as the .editing outline marker
+   below never having turned off. */
+#editor:not(.editing) #entry-title,
+#editor:not(.editing) #entry-content {
+  cursor: default;
+  outline: none;
+}
+
+#editor:not(.editing) #entry-content-wrapper {
+  outline: none;
+}
+
+/* cursor: pointer here is documentary only -- the overlay is
+   pointer-events: none so it never receives hover itself. The actual
+   hand-cursor swap happens in editor.js (onTextareaMouseMove), which
+   hit-tests the mouse position against these spans' on-screen rects and
+   sets the cursor on the textarea, which is the element really under the
+   pointer. */
+.wikilink-resolved {
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.wikilink-unresolved {
+  color: var(--color-warn, #d98c46);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+/* Autocomplete popup -- positioned via JS (left/top set to the overlay's
+   zero-width #caret-marker span's bounding rect), position: fixed so those
+   viewport-relative coordinates need no scroll-offset math. */
+#wikilink-autocomplete {
+  position: fixed;
+  z-index: 20;
+  min-width: 180px;
+  max-width: 320px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 0.25rem;
+}
+
+.wikilink-suggestion {
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wikilink-suggestion:hover,
+.wikilink-suggestion.selected {
+  background: var(--color-accent);
+  color: #fff;
+}

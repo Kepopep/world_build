@@ -1,0 +1,272 @@
+/* Minimal, legible baseline styling for the narrow first slice.
+   Dark theme loosely inspired by the design reference screenshot, but this
+   is only a light styling pass -- full visual parity (icon rails,
+   breadcrumb, tag pills, theming toggle, etc.) comes in a later phase. */
+
+:root {
+  --color-bg: #16171b;
+  --color-bg-alt: #1c1d22;
+  --color-panel: #202127;
+  --color-border: #33343c;
+  --color-text: #e4e4e8;
+  --color-muted: #8b8d98;
+  --color-accent: #6c7cf0;
+  --color-accent-hover: #7e8cf3;
+  --color-danger: #e06767;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+#top-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-alt);
+}
+
+.wordmark {
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-right: 0.5rem;
+  color: var(--color-text);
+}
+
+#top-bar label {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+#status-message {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+#status-message.error {
+  color: var(--color-danger);
+}
+
+#app-shell {
+  display: flex;
+  height: calc(100vh - 56px);
+}
+
+#entry-sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-border);
+  padding: 1rem;
+  overflow-y: auto;
+  background: var(--color-bg-alt);
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.sidebar-header h2 {
+  font-size: 1rem;
+  margin: 0;
+  color: var(--color-text);
+}
+
+#entry-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entry-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 0.25rem;
+}
+
+.entry-list-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.entry-list-item.active {
+  background: var(--color-accent);
+}
+
+.entry-list-item.active:hover {
+  background: var(--color-accent);
+}
+
+.entry-list-item.active .entry-title-btn {
+  color: #fff;
+}
+
+.entry-title-btn {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 0.5rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: var(--color-text);
+  border-radius: 4px;
+}
+
+.entry-title-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.entry-list-item.active .entry-title-btn:hover {
+  background: transparent;
+}
+
+.entry-delete-btn {
+  background: none;
+  border: none;
+  color: var(--color-danger);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.entry-list-empty {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  padding: 0.5rem;
+}
+
+#content-panel {
+  flex: 1;
+  padding: 1.5rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+#editor-empty {
+  color: var(--color-muted);
+}
+
+#editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+}
+
+#entry-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  padding: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+
+#entry-content {
+  flex: 1;
+  min-height: 300px;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-text);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+#entry-title::placeholder,
+#entry-content::placeholder {
+  color: var(--color-muted);
+}
+
+button {
+  cursor: pointer;
+  font: inherit;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+
+button:hover {
+  background: var(--color-bg-alt);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+#save-btn {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+#save-btn:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+button.danger,
+#delete-btn {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+  background: transparent;
+}
+
+button.danger:hover:not(:disabled),
+#delete-btn:hover:not(:disabled) {
+  background: rgba(224, 103, 103, 0.1);
+}
+
+input[type="text"] {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font: inherit;
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+
+input[type="text"]::placeholder {
+  color: var(--color-muted);
+}
+
+select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font: inherit;
+  background: var(--color-panel);
+  color: var(--color-text);
+}
+
+select:disabled,
+option:disabled {
+  color: var(--color-muted);
+}
