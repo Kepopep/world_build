@@ -22,7 +22,9 @@
 // resync (see renderPreviewInto()).
 
 (function () {
-  const WIKILINK_SOURCE = "\\[\\[([^\\[\\]\\n]+)\\]\\]";
+  // WIKILINK_SOURCE now lives in wikilink-parser.js (loaded before this
+  // file) so graph.js can reuse the exact same pattern without duplicating
+  // it -- see the two use sites below (tokenize(), tokenizeInline()).
   const AUTOCOMPLETE_DEBOUNCE_MS = 150;
   const AUTOCOMPLETE_LIMIT = 8;
 
@@ -215,7 +217,7 @@
       const text = value.slice(line.start, line.end);
       let m;
 
-      const wikiRe = new RegExp(WIKILINK_SOURCE, "g");
+      const wikiRe = new RegExp(window.wikilinkParser.WIKILINK_SOURCE, "g");
       while ((m = wikiRe.exec(text)) !== null) {
         const rawTitle = m[1];
         const start = line.start + m.index;
@@ -569,7 +571,7 @@
   function tokenizeInline(text) {
     const candidates = [];
     let m;
-    const wikiRe = new RegExp(WIKILINK_SOURCE, "g");
+    const wikiRe = new RegExp(window.wikilinkParser.WIKILINK_SOURCE, "g");
     while ((m = wikiRe.exec(text)) !== null) {
       const entryId = titleIndex.get(m[1].toLowerCase());
       candidates.push({

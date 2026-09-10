@@ -1,0 +1,62 @@
+/* Modal + SVG canvas for the client-side [[wikilink]] relationship graph
+   (js/graph.js). Layered on top of css/base.css the same way editor.css/
+   tags.css/sidebar.css are -- uses the same --color-* tokens defined there,
+   no new ones introduced. */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  width: min(90vw, 960px);
+  height: min(85vh, 640px);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--color-text);
+}
+
+#graph-canvas {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+}
+
+.graph-node-label {
+  fill: var(--color-muted);
+  opacity: 0.75;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.graph-empty-message {
+  fill: var(--color-muted);
+  font-size: 0.9rem;
+  text-anchor: middle;
+}

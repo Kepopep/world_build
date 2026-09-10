@@ -39,6 +39,11 @@ document.addEventListener("DOMContentLoaded", () => {
   els.editToggleBtn = document.getElementById("edit-toggle-btn");
   els.saveBtn = document.getElementById("save-btn");
   els.deleteBtn = document.getElementById("delete-btn");
+  els.entryGraphBtn = document.getElementById("entry-graph-btn");
+  els.worldGraphBtn = document.getElementById("world-graph-btn");
+  els.graphModal = document.getElementById("graph-modal");
+  els.graphModalClose = document.getElementById("graph-modal-close");
+  els.graphModalTitle = document.getElementById("graph-modal-title");
   els.statusMessage = document.getElementById("status-message");
 
   els.worldSelect.addEventListener("change", onWorldSelected);
@@ -51,6 +56,9 @@ document.addEventListener("DOMContentLoaded", () => {
   els.editToggleBtn.addEventListener("click", onToggleEditing);
   els.saveBtn.addEventListener("click", onSaveEntry);
   els.deleteBtn.addEventListener("click", () => onDeleteEntry(state.openEntryId));
+  els.entryGraphBtn.addEventListener("click", onOpenEntryGraph);
+  els.worldGraphBtn.addEventListener("click", onOpenWorldGraph);
+  els.graphModalClose.addEventListener("click", () => window.graph.close());
   els.entryTitle.addEventListener("input", markDirty);
   els.entryContent.addEventListener("input", markDirty);
   // editor.js owns Escape for the content textarea (it's layered there --
@@ -103,6 +111,52 @@ function updateActionStates() {
   // so nothing could have changed.
   els.saveBtn.disabled = !state.openEntryId || !state.editing;
   els.deleteBtn.disabled = !state.openEntryId;
+  els.entryGraphBtn.disabled = !state.openEntryId;
+  els.worldGraphBtn.disabled = !state.selectedWorldId;
+}
+
+// Opens the modal graph view (js/graph.js) centered on the currently open
+// entry -- its direct (1-hop) [[wikilink]] neighbors only, in+out, per
+// CLAUDE.md's graph feature spec. graph.js never reaches into `state`
+// directly; everything it needs is handed to it here via `config`, same
+// arm's-length pattern as syncEditorState()/renderSidebar()/renderTags().
+function onOpenEntryGraph() {
+  if (!state.openEntryId) {
+    return;
+  }
+  els.graphModalTitle.textContent = "Entry graph";
+  window.graph.render(els.graphModal, {
+    mode: "entry",
+    worldId: state.selectedWorldId,
+    entries: state.entries,
+    centerEntryId: state.openEntryId,
+    onNavigate: (id) => {
+      window.graph.close();
+      openEntry(id);
+    },
+    onEntryCreated: onStubEntryCreated,
+    onError: (msg) => showStatus(msg, true),
+  });
+}
+
+// Opens the modal graph view for the whole world -- every entry as a node,
+// every [[wikilink]] between them as an edge.
+function onOpenWorldGraph() {
+  if (!state.selectedWorldId) {
+    return;
+  }
+  els.graphModalTitle.textContent = "World graph";
+  window.graph.render(els.graphModal, {
+    mode: "world",
+    worldId: state.selectedWorldId,
+    entries: state.entries,
+    onNavigate: (id) => {
+      window.graph.close();
+      openEntry(id);
+    },
+    onEntryCreated: onStubEntryCreated,
+    onError: (msg) => showStatus(msg, true),
+  });
 }
 
 function renderWorldOptions() {

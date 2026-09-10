@@ -1,0 +1,103 @@
+/* Tag pill row (js/tags.js): rendered under the entry title, above the
+   content editor. Pills are always shown (tags are content, not an editing
+   affordance); the color dot, remove button, and "+ Add tag" control only
+   render in edit mode, matching the rest of the entry editor's view/edit
+   gating (see css/editor.css). */
+
+#entry-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.7rem;
+  /* ^ keeps a stable row height even with zero tags, so the content editor
+     below doesn't jump up/down as tags are added/removed. */
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--tag-color, var(--color-accent));
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.tag-name {
+  white-space: nowrap;
+}
+
+.tag-color-dot {
+  width: 10px;
+  height: 10px;
+  min-width: 10px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.25);
+  padding: 0;
+}
+
+.tag-color-dot:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+/* Kept in the DOM so its native color-picker dialog can be triggered
+   programmatically (colorDot's click handler calls colorInput.click()),
+   but it's never itself visible or reachable -- the dot above is the only
+   visible/focusable control. */
+.tag-color-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tag-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.75;
+}
+
+.tag-remove:hover {
+  opacity: 1;
+}
+
+.tag-add-btn {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: 999px;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+}
+
+.tag-add-btn:hover {
+  background: transparent;
+  color: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.tag-add-form {
+  display: inline-flex;
+}
+
+.tag-add-input {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-panel);
+  color: var(--color-text);
+  width: 140px;
+}
