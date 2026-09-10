@@ -41,6 +41,22 @@
   color: var(--color-text);
 }
 
+/* user-select: none is the actual fix for text-selection-while-dragging --
+   the drag handlers' pointerdown preventDefault() (js/graph.js) stops the
+   click/drag itself from placing a text cursor, but the browser's built-in
+   "mousedown + drag = select nearby text" behavior is a separate mechanism
+   it doesn't reliably suppress. Scoped to the whole modal panel / embedded
+   panel, not just the <svg>, since a fast drag can carry the pointer past
+   the canvas edge onto the modal's own title/buttons while still
+   pointer-captured to the node being dragged -- a selection dragged across
+   THAT text is exactly as annoying as one over the graph itself. */
+#graph-modal .modal-panel,
+#entry-graph-panel {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+
 #graph-canvas {
   flex: 1;
   width: 100%;
@@ -74,8 +90,8 @@
 }
 
 /* Relation edges (solid, labeled) vs wikilink-derived edges (dashed,
-   unlabeled) -- js/graph.js's drawEdge() sets this class per edge.kind, see
-   CLAUDE.md's graph merge decision. */
+   unlabeled) -- js/graph.js's drawEdgeInitial() sets this class per
+   edge.kind, see CLAUDE.md's graph merge decision. */
 .graph-edge-wikilink {
   stroke-dasharray: 4 3;
 }
