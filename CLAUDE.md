@@ -873,20 +873,41 @@ for exact contracts.
   `[[wikilink]]` references already in `state.entries`, predating this
   system entirely) and the new `Relation`-backed graph are **merged into one
   view**, not kept as separate toggleable modes — nodes are deduped by entry
-  id, edges are tagged `kind: 'relation' | 'wikilink'` so `drawEdge` renders
-  solid+labeled lines for formal relations and dashed lines for wikilink
-  references.
+  id, edges are tagged `kind: 'relation' | 'wikilink'` so `drawEdgeInitial`
+  renders solid+labeled lines for formal relations and dashed lines for
+  wikilink references.
 - The **full-world graph stays the pre-existing modal** (opened from the top
   bar's "Graph view" button or the far-left rail's graph icon) — a
   force-directed layout of an entire world's entries needs real screen
   space a narrow rail panel can't give it.
 - The **per-entry graph is a new small embedded panel in the right rail**
-  (radial layout, `renderEntryPanel`), reusing the same
-  compute/layout/draw pipeline as the modal via a `createRenderer()`
-  factory so the two views have independent render state.
-- Both were verified end-to-end against a live app + Postgres instance:
-  world graph modal shows the merged edge set correctly; the embedded panel
-  shows the open entry's neighbors; deleting a relation updates both.
+  (`renderEntryPanel`), reusing the same compute/simulation/draw pipeline as
+  the modal via a `createRenderer()` factory so the two views have
+  independent render/simulation state.
+- **The graph is a live, draggable force simulation, not a static one-shot
+  layout** (on direct request, after the initial version above landed):
+  nodes repel each other (`simulationTick`'s O(n²) repulsion pass), edges
+  act as springs pulling their two endpoints toward a resting distance (so
+  dragging one node drags its whole connected chain along), every node
+  drifts toward the viewport center, and the whole thing runs on a
+  `requestAnimationFrame` loop whose forces are scaled by a cooling `alpha`
+  that decays every tick (`createSimulationController`) — so it settles and
+  the RAF loop stops on its own once nothing is left to react to, and stays
+  stopped until something reheats it. Hand-rolled rather than pulling in
+  d3-force (no new dependency, consistent with the "no framework/bundler"
+  rule). Dragging (`attachDragHandlers`, pointer events + `getScreenCTM` for
+  accurate coordinates regardless of canvas scaling) pins the dragged node
+  (`fixed: true`, exempted from integration but still exerting forces on
+  everyone else) and reheats alpha on every move and once more on release,
+  so connected nodes visibly follow along and the graph gets a few ticks to
+  resettle before cooling back down to a stop; a `moved`-threshold guard
+  keeps a plain click (no drag) from ever pinning/reheating anything, and
+  the `click` handler ignores the synthetic click a browser fires after a
+  real drag's pointerup, so dragging a node never also navigates to it.
+  Nodes/edges are created once and repositioned in place every tick
+  (`positionNode`/`positionEdge`), not torn down and redrawn, both for
+  performance and so the drag/click listeners attached to each circle
+  survive across ticks.
 
 **Known gaps, deliberately deferred:**
 - No relation-creation UI — `RelationDefinition`/`Relation` rows currently
