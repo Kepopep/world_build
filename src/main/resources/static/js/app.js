@@ -30,7 +30,11 @@ document.addEventListener("DOMContentLoaded", () => {
   els.entryTitle = document.getElementById("entry-title");
   els.entryContent = document.getElementById("entry-content");
   els.entryContentOverlay = document.getElementById("entry-content-overlay");
+  els.entryContentWrapper = document.getElementById("entry-content-wrapper");
+  els.entryContentPreview = document.getElementById("entry-content-preview");
   els.wikilinkAutocomplete = document.getElementById("wikilink-autocomplete");
+  els.markdownToolbar = document.getElementById("markdown-toolbar");
+  els.editorWordCount = document.getElementById("editor-word-count");
   els.entryTags = document.getElementById("entry-tags");
   els.editToggleBtn = document.getElementById("edit-toggle-btn");
   els.saveBtn = document.getElementById("save-btn");
@@ -273,6 +277,9 @@ function syncEditorState() {
     textarea: els.entryContent,
     overlay: els.entryContentOverlay,
     autocompleteEl: els.wikilinkAutocomplete,
+    toolbarEl: els.markdownToolbar,
+    wordCountEl: els.editorWordCount,
+    preview: els.entryContentPreview,
     worldId: state.selectedWorldId,
     entries: state.entries,
     editing: state.editing,
@@ -308,6 +315,8 @@ async function setEditing(editing) {
   state.editing = editing;
   els.entryTitle.readOnly = !editing;
   els.entryContent.readOnly = !editing;
+  els.entryContentWrapper.hidden = !editing;
+  els.entryContentPreview.hidden = editing;
   els.editor.classList.toggle("editing", editing);
   // Icon-only buttons -- swapping textContent would blow away the SVG, so
   // the pressed-state visual (accent fill, see editor.css) plus an updated

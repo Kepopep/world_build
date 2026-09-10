@@ -131,12 +131,13 @@
   outline: none;
 }
 
-/* cursor: pointer here is documentary only -- the overlay is
-   pointer-events: none so it never receives hover itself. The actual
-   hand-cursor swap happens in editor.js (onTextareaMouseMove), which
-   hit-tests the mouse position against these spans' on-screen rects and
-   sets the cursor on the textarea, which is the element really under the
-   pointer. */
+/* cursor: pointer here is genuinely active for the rendered preview's
+   .wikilink-resolved/.wikilink-unresolved spans (real DOM, real hover) --
+   see js/editor.js's onPreviewClick/onPreviewDblClick. It's still inert for
+   the edit-mode overlay's copies of these classes, since that overlay is
+   pointer-events: none (the textarea on top owns all mouse events there,
+   and clicking a reference while editing intentionally just places the
+   caret rather than navigating -- see CLAUDE.md's View/edit mode notes). */
 .wikilink-resolved {
   color: var(--color-accent);
   text-decoration: underline;
@@ -181,4 +182,161 @@
 .wikilink-suggestion.selected {
   background: var(--color-accent);
   color: #fff;
+}
+
+/* Markdown formatting toolbar (Undo/Redo/heading dropdown/Bold/Italic/.../
+   Code block) -- same minimalist icon-button spirit as .content-toolbar
+   above (in fact reuses .icon-btn directly), just a longer row. Disabling
+   is handled entirely in JS (editor.js toggles each control's `disabled`
+   attribute with editingEnabled, same gating rule as every other editable
+   control in this panel -- see CLAUDE.md's View/edit mode section) rather
+   than a CSS attribute selector, so there's nothing edit-mode-specific to
+   style here. */
+.markdown-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.markdown-toolbar select {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+/* Footer label under the editor: "Markdown · N words", right-aligned per
+   the screenshot. Muted/small like #status-message, not a call to action. */
+.editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+/* Extended syntax-highlighting token classes for the overlay, on top of the
+   existing .wikilink-resolved/.wikilink-unresolved rules above.
+   HARD CONSTRAINT: only color/font-weight/font-style/text-decoration/
+   background-color may be set here -- never font-size/line-height/padding/
+   margin/border/letter-spacing. The overlay <div> must stay pixel-identical
+   in layout to the transparent textarea on top of it (scroll-sync, the
+   autocomplete caret-marker, and wikilink hover/click hit-testing all
+   depend on that); "headers colored, in a larger weight" per CLAUDE.md
+   means font-weight: 700, not a bigger font-size. */
+.md-header {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.md-list-marker {
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.md-blockquote {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.md-bold {
+  font-weight: 700;
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+.md-inline-code {
+  color: var(--color-warn, #d98c46);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.md-code-block {
+  color: var(--color-text);
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Rendered markdown preview (view mode only). Real DOM, no textarea
+   underneath -- unlike the overlay above, font-size/spacing/layout rules
+   are fully safe here. */
+.markdown-preview {
+  flex: 1;
+  min-height: 300px;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-text);
+  overflow-y: auto;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.6;
+}
+
+.markdown-preview-empty {
+  color: var(--color-muted);
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.markdown-preview h1 {
+  font-size: 1.6rem;
+}
+.markdown-preview h2 {
+  font-size: 1.35rem;
+}
+.markdown-preview h3 {
+  font-size: 1.15rem;
+}
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  font-size: 1rem;
+}
+
+.markdown-preview p {
+  margin: 0 0 0.75rem;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
+}
+.markdown-preview li {
+  margin: 0.15rem 0;
+}
+
+.markdown-preview blockquote {
+  margin: 0 0 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.markdown-preview code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.markdown-preview pre {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.markdown-preview pre code {
+  background: none;
+  padding: 0;
 }
