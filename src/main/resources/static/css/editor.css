@@ -66,6 +66,7 @@
    color already used elsewhere for active/selected state (e.g.
    .entry-list-item.active, #save-btn). */
 #editor.editing #entry-title,
+#editor.editing #entry-summary,
 #editor.editing #entry-content-wrapper {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
@@ -122,6 +123,7 @@
    left showing, a stray focus ring reads as the .editing outline marker
    below never having turned off. */
 #editor:not(.editing) #entry-title,
+#editor:not(.editing) #entry-summary,
 #editor:not(.editing) #entry-content {
   cursor: default;
   outline: none;

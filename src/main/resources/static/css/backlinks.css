@@ -1,0 +1,26 @@
+/* Right-rail backlinks panel (js/backlinks.js) -- entries whose content
+   resolves a [[wikilink]] back to the one currently open ("Linked from").
+   Lives inside #right-panel (css/rail.css owns that shell). */
+
+#backlinks-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.backlink-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.backlink-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}

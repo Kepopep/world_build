@@ -1,0 +1,38 @@
+/* Right-rail outline panel (js/outline.js) -- an indented, clickable list of
+   the open entry's #{1,6} markdown headings. Lives inside #right-panel
+   (css/rail.css owns that shell); this file only styles the list itself. */
+
+#outline-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.outline-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.3rem 0.4rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.outline-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Indent by heading level (h1..h6) -- purely a left-padding step, no nested
+   <ul> structure needed since headings are already a flat, ordered list. */
+.outline-item[data-level="1"] { padding-left: 0.4rem; font-weight: 600; }
+.outline-item[data-level="2"] { padding-left: 1rem; }
+.outline-item[data-level="3"] { padding-left: 1.6rem; }
+.outline-item[data-level="4"] { padding-left: 2.2rem; }
+.outline-item[data-level="5"] { padding-left: 2.8rem; }
+.outline-item[data-level="6"] { padding-left: 3.4rem; }

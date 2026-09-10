@@ -180,6 +180,49 @@ function updateTag(tagId, data) {
   });
 }
 
+// Relations / graph
+
+// Relations attached to one entry, from that entry's point of view (label/
+// outgoing already resolved server-side -- see RelationResponse). Consumed
+// by the entry relation graph panel today; a future "Related via ..." list
+// (CLAUDE.md's deferred second backlinks section) would use this directly
+// too.
+function listEntryRelations(entryId) {
+  return request(`/entries/${entryId}/relations`);
+}
+
+// {nodes:[{id,title,icon}], edges:[{sourceId,targetId,label,relationDefinitionId}]}
+// -- the formal-Relation graph, BFS-expanded `depth` hops from `entryId`
+// (defaults to the server's own default, currently 1, if omitted). Merged
+// client-side with the wikilink-derived graph -- see js/graph.js's
+// mergeGraphs().
+function getEntryGraph(entryId, depth) {
+  const query = depth ? `?depth=${depth}` : "";
+  return request(`/graph/entry/${entryId}${query}`);
+}
+
+// Same shape as getEntryGraph, for the whole world (every Entry as a node,
+// every Relation as an edge) -- merged with the wikilink-derived world graph
+// the same way.
+function getWorldGraph(worldId) {
+  return request(`/graph/world/${worldId}`);
+}
+
+// General title/summary/content search, scoped to a world -- backs the
+// top-bar search box (js/search.js). Distinct from searchEntryTitles()
+// above, which is narrower (title-only) and backs the wikilink autocomplete.
+function searchWorld(worldId, q, limit, signal) {
+  const params = new URLSearchParams();
+  if (q) {
+    params.set("q", q);
+  }
+  if (limit) {
+    params.set("limit", limit);
+  }
+  const query = params.toString();
+  return request(`/worlds/${worldId}/search${query ? `?${query}` : ""}`, signal ? { signal } : {});
+}
+
 window.api = {
   listWorlds,
   createWorld,
@@ -199,4 +242,8 @@ window.api = {
   addEntryTag,
   removeEntryTag,
   updateTag,
+  listEntryRelations,
+  getEntryGraph,
+  getWorldGraph,
+  searchWorld,
 };

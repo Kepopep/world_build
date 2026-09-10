@@ -15,6 +15,26 @@
   --color-danger: #e06767;
 }
 
+/* Light theme override (js/theme.js toggles this attribute on <html> and
+   persists the choice to localStorage). Same custom-property names as
+   :root above -- every rule in this stylesheet (and editor.css/tags.css/
+   sidebar.css/graph.css/rail.css/outline.css/backlinks.css/search.css,
+   which all consume these tokens rather than hardcoding colors) picks this
+   up for free, no per-file light-mode rules needed. Dark stays the default
+   (no [data-theme] attribute set) so existing users see no change/flash
+   until they opt in. */
+[data-theme="light"] {
+  --color-bg: #f5f5f7;
+  --color-bg-alt: #ffffff;
+  --color-panel: #ffffff;
+  --color-border: #d8d8de;
+  --color-text: #1c1d22;
+  --color-muted: #6b6d78;
+  --color-accent: #4b5cd6;
+  --color-accent-hover: #5a6ae0;
+  --color-danger: #c3453f;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -183,6 +203,40 @@ body {
   min-height: 0;
 }
 
+/* Entry header: circular type-icon placeholder (a letter avatar -- there's
+   no icon-picker UX yet, see js/app.js's renderEntryAvatar) + a stacked
+   title/summary column, per CLAUDE.md's UI breakdown ("circular type icon,
+   large title, one-line description/subtitle"). */
+#entry-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.entry-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #fff;
+  /* Background color is set inline per-entry (hash of the title) -- see
+     js/app.js's renderEntryAvatar/hashToColor. */
+  background: var(--color-accent);
+}
+
+#entry-header-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
 #entry-title {
   font-size: 1.25rem;
   font-weight: 600;
@@ -191,6 +245,28 @@ body {
   border-radius: 4px;
   background: var(--color-panel);
   color: var(--color-text);
+}
+
+#entry-summary {
+  font-size: 0.9rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-muted);
+}
+
+#entry-summary::placeholder {
+  color: var(--color-muted);
+}
+
+/* Created/last-modified metadata, right-aligned per the screenshot spec. */
+#entry-timestamps {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  font-size: 0.78rem;
+  color: var(--color-muted);
 }
 
 #entry-content {

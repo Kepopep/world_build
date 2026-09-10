@@ -1,8 +1,17 @@
-// Client-side relationship graph built from the existing [[wikilink]]
-// system -- NOT the (unbuilt) formal Relation/RelationDefinition system.
-// Two views: a full-world graph (every entry as a node, every wikilink as an
-// edge) and a per-entry graph (the open entry plus only its direct 1-hop
-// links, in+out, no edges between two neighbors).
+// Relationship graph, merging TWO sources into one view (per CLAUDE.md's
+// graph decision):
+//   - client-side [[wikilink]]-derived nodes/edges, computed locally from
+//     already-loaded entry content (computeWorldGraph/computeEntryGraph) --
+//     the original, still-independent-of-the-backend half.
+//   - the formal Relation/RelationDefinition graph, fetched from
+//     GET /api/graph/world/{worldId} / GET /api/graph/entry/{id} and merged
+//     in (fetchWorldRelationGraph/fetchEntryRelationGraph + mergeGraphs).
+// Nodes are deduped by entry id; edges carry a `kind: 'relation'|'wikilink'`
+// so drawEdge() can render solid+labeled (relation) vs dashed (wikilink)
+// distinctly. Two views: a full-world graph (every entry as a node) and a
+// per-entry graph (the open entry plus its 1-hop neighbors from either
+// source, in+out, no edges between two neighbors on the wikilink side --
+// the relation side's depth-1 BFS result is used as returned).
 //
 // Self-contained, arm's-length module -- same pattern as sidebar.js/
 // tags.js/editor.js: graph.js never reaches into app.js's `state` directly,
@@ -10,10 +19,18 @@
 // thing shared with editor.js is wikilink-parser.js (both need the same
 // [[Title]] regex); graph.js never imports/calls editor.js or vice versa.
 //
-// No backend calls of its own: GET /api/worlds/{worldId}/hierarchy already
-// returns full contentMarkdown for every entry, so the whole graph
-// (including backlinks) is computed here from state.entries, already loaded
-// by app.js before render() is ever called.
+// Two independent renderer instances (see the Rendering section's
+// createRenderer() factory): one backs the existing full-screen modal
+// (#graph-modal), the other backs the small embedded right-rail per-entry
+// panel (#entry-graph-panel) -- kept as separate closures over their own
+// svg/node-circle state so the two can never clobber each other if both
+// happen to have been rendered at some point (only one is ever visible at a
+// time in practice, but nothing here assumes that).
+//
+// Relation-graph fetches degrade gracefully: if GET /api/graph/... fails
+// (e.g. not deployed yet), the merge just falls back to wikilink-only data
+// (a console.warn, not a user-facing error) rather than blocking the whole
+// graph view on a still-landing backend endpoint.
 
 (function () {
   // ---- Graph computation (pure functions) --------------------------------
@@ -56,7 +73,7 @@
         }
         const edgeKey = [sourceId, targetId].sort().join("|");
         if (!edges.has(edgeKey)) {
-          edges.set(edgeKey, { source: sourceId, target: targetId });
+          edges.set(edgeKey, { source: sourceId, target: targetId, kind: "wikilink" });
         }
       }
     }
@@ -69,6 +86,64 @@
     const touching = edges.filter((e) => e.source === centerId || e.target === centerId);
     const keepIds = new Set([centerId, ...touching.flatMap((e) => [e.source, e.target])]);
     return { nodes: nodes.filter((n) => keepIds.has(n.id)), edges: touching, centerId: centerId };
+  }
+
+  // ---- Formal-Relation graph: fetch + merge with the wikilink graph -------
+
+  // Both degrade to `null` (rather than throwing) on failure -- see the
+  // module doc comment's note on graceful degradation. Callers treat `null`
+  // the same as "no relation data available yet".
+  async function fetchEntryRelationGraph(entryId, depth) {
+    try {
+      return await window.api.getEntryGraph(entryId, depth || 1);
+    } catch (err) {
+      console.warn("Entry relation graph unavailable:", err && err.message ? err.message : err);
+      return null;
+    }
+  }
+
+  async function fetchWorldRelationGraph(worldId) {
+    try {
+      return await window.api.getWorldGraph(worldId);
+    } catch (err) {
+      console.warn("World relation graph unavailable:", err && err.message ? err.message : err);
+      return null;
+    }
+  }
+
+  // Merges a locally-computed wikilink graph ({nodes, edges}, edges already
+  // tagged kind:'wikilink') with a server relation graph
+  // ({nodes:[{id,title,icon}], edges:[{sourceId,targetId,label,
+  // relationDefinitionId}]}, or null if unavailable). Nodes are deduped by
+  // "e:" + entry id -- a relation-graph node for an entry already present
+  // from the wikilink side is skipped, not overwritten (the wikilink side's
+  // node already carries everything drawNode() needs). Relation edges are
+  // tagged kind:'relation' and keep their label/relationDefinitionId for
+  // drawEdge() to render solid+labeled.
+  function mergeGraphs(local, relationGraph) {
+    const nodes = new Map();
+    for (const n of local.nodes) {
+      nodes.set(n.id, n);
+    }
+    const edges = local.edges.slice();
+    if (relationGraph) {
+      for (const n of relationGraph.nodes || []) {
+        const id = "e:" + n.id;
+        if (!nodes.has(id)) {
+          nodes.set(id, { id: id, kind: "resolved", title: n.title, entryId: n.id, icon: n.icon });
+        }
+      }
+      for (const e of relationGraph.edges || []) {
+        edges.push({
+          source: "e:" + e.sourceId,
+          target: "e:" + e.targetId,
+          kind: "relation",
+          label: e.label,
+          relationDefinitionId: e.relationDefinitionId,
+        });
+      }
+    }
+    return { nodes: [...nodes.values()], edges: edges };
   }
 
   // ---- Layout -------------------------------------------------------------
@@ -170,19 +245,6 @@
   const SVG_NS = "http://www.w3.org/2000/svg";
   const UNRESOLVED_COLOR = "var(--color-warn, #d98c46)";
 
-  // Module-local render state, re-set on every render() call -- mirrors the
-  // "wired-up elements + callbacks, set by init()" pattern editor.js uses,
-  // just named for a single modal render pass rather than a persistent
-  // textarea.
-  let svgEl = null;
-  let currentContainer = null;
-  let currentNodes = [];
-  let nodeCircles = new Map(); // node.id -> <circle> element, for redrawNode()
-
-  function svgElFor(container) {
-    return container.querySelector("#graph-canvas");
-  }
-
   function clearSvg(svg) {
     while (svg.firstChild) {
       svg.removeChild(svg.firstChild);
@@ -213,7 +275,12 @@
     return node.kind === "resolved" ? "1" : "0.5";
   }
 
-  function drawEdge(svg, a, b) {
+  // `edge` is optional (falls back to a plain wikilink-style line if
+  // omitted, e.g. from any future caller that only has two nodes) --
+  // relation edges (kind:'relation') render solid with a text label at the
+  // midpoint; wikilink edges (kind:'wikilink', or no edge at all) render
+  // dashed via the .graph-edge-wikilink class (css/graph.css).
+  function drawEdge(svg, a, b, edge) {
     const line = document.createElementNS(SVG_NS, "line");
     line.setAttribute("x1", String(a.x));
     line.setAttribute("y1", String(a.y));
@@ -222,10 +289,27 @@
     line.setAttribute("stroke", "var(--color-border)");
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("opacity", "0.6");
+    if (!edge || edge.kind !== "relation") {
+      line.setAttribute("class", "graph-edge-wikilink");
+    }
     svg.appendChild(line);
+
+    if (edge && edge.kind === "relation" && edge.label) {
+      const label = document.createElementNS(SVG_NS, "text");
+      label.setAttribute("class", "graph-edge-label");
+      label.setAttribute("x", String((a.x + b.x) / 2));
+      label.setAttribute("y", String((a.y + b.y) / 2 - 4));
+      label.textContent = edge.label;
+      svg.appendChild(label);
+    }
   }
 
-  function drawNode(svg, node, config) {
+  // `nodeCircles` is an out-param (Map<node.id, circle>) rather than closed-
+  // over module state -- see the Rendering section's createRenderer()
+  // factory, which owns one such map per renderer instance (modal vs. the
+  // embedded entry-graph panel) so the two can never clobber each other's
+  // redrawNode() lookups.
+  function drawNode(svg, node, config, nodeCircles) {
     const circle = document.createElementNS(SVG_NS, "circle");
     circle.setAttribute("cx", String(node.x));
     circle.setAttribute("cy", String(node.y));
@@ -297,78 +381,125 @@
     return { width, height };
   }
 
-  function render(container, config) {
-    currentContainer = container;
-    container.hidden = false;
+  // One renderer instance backs the full-screen modal, a second backs the
+  // small embedded right-rail entry-graph panel -- each owns its own
+  // svgEl/currentContainer/nodeCircles closure so the two can never
+  // interfere with each other (see the module doc comment). Both share every
+  // computation/layout/draw function above; only this render/close pairing
+  // (plus which DOM element `render()` is pointed at) differs per instance.
+  function createRenderer() {
+    let svgEl = null;
+    let currentContainer = null;
+    let nodeCircles = new Map(); // node.id -> <circle> element, for redrawNode()
 
-    const svg = svgElFor(container);
-    svgEl = svg;
-    clearSvg(svg);
-    nodeCircles = new Map();
-
-    // Canvas sizing is read after the modal is made visible (`hidden` was
-    // just cleared above) so getBoundingClientRect() reflects real laid-out
-    // dimensions, not a collapsed hidden element -- falls back to a fixed
-    // 900x600 default (see containerSize) if that still comes back empty.
-    const { width, height } = containerSize(svg);
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-
-    let nodes, edges, centerId;
-    if (config.mode === "entry") {
-      const result = computeEntryGraph(config.entries, config.centerEntryId);
-      nodes = result.nodes;
-      edges = result.edges;
-      centerId = result.centerId;
-    } else {
-      const result = computeWorldGraph(config.entries);
-      nodes = result.nodes;
-      edges = result.edges;
-      centerId = null;
-    }
-    config._centerId = centerId;
-    currentNodes = nodes;
-
-    if (nodes.length === 0) {
-      renderEmptyState(svg, width, height, config.mode === "entry" ? "No links yet" : "No entries yet");
-      return;
+    // config.canvasSelector lets a caller point this at a different <svg>
+    // than the modal's default #graph-canvas -- the embedded panel uses
+    // #entry-graph-panel-canvas instead (see app.js's onOpenEntryGraphPanel/
+    // css/graph.css).
+    function svgElFor(container, config) {
+      const selector = (config && config.canvasSelector) || "#graph-canvas";
+      return container.querySelector(selector);
     }
 
-    if (config.mode === "entry") {
-      const center = nodes.find((n) => n.id === centerId);
-      const neighbors = nodes.filter((n) => n.id !== centerId);
-      if (center) {
-        layoutRadial(center, neighbors, width, height);
+    // Async: awaits the formal-Relation graph fetch (fetchEntryRelationGraph/
+    // fetchWorldRelationGraph) before drawing, so the merged result renders
+    // in one pass rather than the wikilink half flashing in first. Callers
+    // don't need to await this themselves -- render() already shows/clears
+    // the canvas synchronously up front, and a slow/failed relation fetch
+    // only delays/omits the relation edges, never the wikilink ones (see the
+    // module doc comment's graceful-degradation note).
+    async function render(container, config) {
+      currentContainer = container;
+      container.hidden = false;
+
+      const svg = svgElFor(container, config);
+      svgEl = svg;
+      clearSvg(svg);
+      nodeCircles = new Map();
+
+      // Canvas sizing is read after the container is made visible (`hidden`
+      // was just cleared above) so getBoundingClientRect() reflects real
+      // laid-out dimensions, not a collapsed hidden element -- falls back to
+      // a fixed 900x600 default (see containerSize) if that still comes
+      // back empty.
+      const { width, height } = containerSize(svg);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+      let local, centerId;
+      if (config.mode === "entry") {
+        local = computeEntryGraph(config.entries, config.centerEntryId);
+        centerId = local.centerId;
+      } else {
+        local = computeWorldGraph(config.entries);
+        centerId = null;
+      }
+
+      let relationGraph = null;
+      if (config.mode === "entry" && config.centerEntryId) {
+        relationGraph = await fetchEntryRelationGraph(config.centerEntryId, config.relationDepth);
+      } else if (config.worldId) {
+        relationGraph = await fetchWorldRelationGraph(config.worldId);
+      }
+      const merged = mergeGraphs(local, relationGraph);
+      const nodes = merged.nodes;
+      const edges = merged.edges;
+
+      config._centerId = centerId;
+
+      if (nodes.length === 0) {
+        renderEmptyState(svg, width, height, config.mode === "entry" ? "No links yet" : "No entries yet");
+        return;
+      }
+
+      if (config.mode === "entry") {
+        const center = nodes.find((n) => n.id === centerId);
+        const neighbors = nodes.filter((n) => n.id !== centerId);
+        if (center) {
+          layoutRadial(center, neighbors, width, height);
+        } else {
+          layoutForceDirected(nodes, edges, width, height);
+        }
       } else {
         layoutForceDirected(nodes, edges, width, height);
       }
-    } else {
-      layoutForceDirected(nodes, edges, width, height);
-    }
 
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    for (const edge of edges) {
-      const a = byId.get(edge.source);
-      const b = byId.get(edge.target);
-      if (a && b) {
-        drawEdge(svg, a, b);
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+      for (const edge of edges) {
+        const a = byId.get(edge.source);
+        const b = byId.get(edge.target);
+        if (a && b) {
+          drawEdge(svg, a, b, edge);
+        }
+      }
+      for (const node of nodes) {
+        drawNode(svg, node, config, nodeCircles);
       }
     }
-    for (const node of nodes) {
-      drawNode(svg, node, config);
+
+    function close() {
+      if (currentContainer) {
+        currentContainer.hidden = true;
+      }
+      if (svgEl) {
+        clearSvg(svgEl);
+      }
     }
+
+    return { render: render, close: close };
   }
 
-  function close() {
-    if (currentContainer) {
-      currentContainer.hidden = true;
-    }
-    if (svgEl) {
-      clearSvg(svgEl);
-    }
-  }
+  const modalRenderer = createRenderer();
+  const panelRenderer = createRenderer();
 
   window.graph = {
-    render: render,
-    close: close,
+    render: modalRenderer.render,
+    close: modalRenderer.close,
+    // Small embedded right-rail per-entry graph panel -- same merged
+    // wikilink+relation data and radial layout as the modal's "entry" mode,
+    // just a smaller chrome-free canvas (config.canvasSelector points it at
+    // #entry-graph-panel-canvas instead of #graph-canvas). See app.js's
+    // right-rail wiring.
+    renderEntryPanel: panelRenderer.render,
+    closeEntryPanel: panelRenderer.close,
   };
 })();

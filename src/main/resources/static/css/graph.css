@@ -60,3 +60,29 @@
   font-size: 0.9rem;
   text-anchor: middle;
 }
+
+/* Small embedded entry-graph panel (js/graph.js's renderEntryPanel), right
+   rail -- same node/edge rendering as the modal canvas above, just a
+   smaller, chrome-free canvas hosted inside #right-panel (css/rail.css)
+   instead of a full #graph-modal. */
+#entry-graph-panel-canvas {
+  width: 100%;
+  height: 260px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+/* Relation edges (solid, labeled) vs wikilink-derived edges (dashed,
+   unlabeled) -- js/graph.js's drawEdge() sets this class per edge.kind, see
+   CLAUDE.md's graph merge decision. */
+.graph-edge-wikilink {
+  stroke-dasharray: 4 3;
+}
+
+.graph-edge-label {
+  fill: var(--color-muted);
+  font-size: 0.7rem;
+  text-anchor: middle;
+  pointer-events: none;
+}

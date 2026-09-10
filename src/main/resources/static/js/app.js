@@ -1,7 +1,9 @@
-// Bootstrap/wiring for the narrow first-slice UI: world picker, a
-// folder/entry tree sidebar (see sidebar.js), a title+markdown editor (see
-// editor.js), and the tag pill row (see tags.js). No relations, search, or
-// theming yet -- those come in later phases per CLAUDE.md.
+// Bootstrap/wiring for the app shell: world picker, a folder/entry tree
+// sidebar (see sidebar.js), a title+summary+markdown editor (see editor.js),
+// the tag pill row (see tags.js), the far-left/far-right icon rails, the
+// three right-rail panels (outline.js/backlinks.js/graph.js's embedded entry
+// panel), the top-bar world search (search.js), and the theme toggle
+// (theme.js -- self-initializing, not wired from here).
 
 const state = {
   worlds: [],
@@ -13,6 +15,11 @@ const state = {
   // Entries open read-only by default -- text is not editable just because
   // it was opened (or just created); the user must click Edit first.
   editing: false,
+  // Which right-rail panel is open, if any -- "outline" | "backlinks" |
+  // "entry-graph" | null. Pure presentation state, same reasoning as
+  // sidebar.js's collapsedFolderIds: only one panel is ever visible at a
+  // time (see togglePanel()).
+  rightPanel: null,
 };
 
 const els = {};
@@ -46,6 +53,32 @@ document.addEventListener("DOMContentLoaded", () => {
   els.graphModalTitle = document.getElementById("graph-modal-title");
   els.statusMessage = document.getElementById("status-message");
 
+  // Entry header (icon/title/summary) + metadata.
+  els.entryIcon = document.getElementById("entry-icon");
+  els.entrySummary = document.getElementById("entry-summary");
+  els.entryTimestamps = document.getElementById("entry-timestamps");
+
+  // Theme toggle is self-initializing (js/theme.js) -- nothing to wire here.
+
+  // Top-bar search.
+  els.searchInput = document.getElementById("search-input");
+  els.searchResults = document.getElementById("search-results");
+
+  // Far-left view-switcher rail (only "notes" and "graph" do anything today
+  // -- library/database are chrome-only placeholders, per CLAUDE.md).
+  els.railGraphBtn = document.getElementById("rail-graph-btn");
+
+  // Far-right panel-toggle rail + the panel host.
+  els.rightPanel = document.getElementById("right-panel");
+  els.railOutlineToggleBtn = document.getElementById("rail-outline-toggle-btn");
+  els.railBacklinksToggleBtn = document.getElementById("rail-backlinks-toggle-btn");
+  els.railEntryGraphToggleBtn = document.getElementById("rail-entry-graph-toggle-btn");
+  els.outlinePanel = document.getElementById("outline-panel");
+  els.outlinePanelBody = document.getElementById("outline-panel-body");
+  els.backlinksPanel = document.getElementById("backlinks-panel");
+  els.backlinksPanelBody = document.getElementById("backlinks-panel-body");
+  els.entryGraphPanel = document.getElementById("entry-graph-panel");
+
   els.worldSelect.addEventListener("change", onWorldSelected);
   els.newWorldBtn.addEventListener("click", onCreateWorld);
   els.newFolderBtn.addEventListener("click", onCreateFolder);
@@ -59,13 +92,25 @@ document.addEventListener("DOMContentLoaded", () => {
   els.entryGraphBtn.addEventListener("click", onOpenEntryGraph);
   els.worldGraphBtn.addEventListener("click", onOpenWorldGraph);
   els.graphModalClose.addEventListener("click", () => window.graph.close());
-  els.entryTitle.addEventListener("input", markDirty);
+  // Title input also drives the header avatar's letter/color live, not just
+  // on the next openEntry()/save -- see renderEntryAvatar().
+  els.entryTitle.addEventListener("input", () => {
+    markDirty();
+    renderEntryAvatar({ title: els.entryTitle.value });
+  });
   els.entryContent.addEventListener("input", markDirty);
+  els.entrySummary.addEventListener("input", markDirty);
   // editor.js owns Escape for the content textarea (it's layered there --
   // first press closes the autocomplete popup if one is open, next exits
-  // edit mode). The title field has no popup of its own, so a direct
-  // listener here is simplest.
+  // edit mode). The title/summary fields have no popup of their own, so a
+  // direct listener on each is simplest.
   els.entryTitle.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.editing) {
+      e.preventDefault();
+      setEditing(false);
+    }
+  });
+  els.entrySummary.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && state.editing) {
       e.preventDefault();
       setEditing(false);
@@ -75,14 +120,26 @@ document.addEventListener("DOMContentLoaded", () => {
   // onTextareaMouseDown): readOnly alone still lets the browser focus the
   // field, place a caret, and highlight a selection on click. Suppressing
   // the native mousedown action in view mode blocks all of that, so the
-  // title is genuinely inert until Edit is clicked, not just uneditable.
+  // title/summary are genuinely inert until Edit is clicked, not just
+  // uneditable.
   els.entryTitle.addEventListener("mousedown", (e) => {
     if (!state.editing) {
       e.preventDefault();
     }
   });
+  els.entrySummary.addEventListener("mousedown", (e) => {
+    if (!state.editing) {
+      e.preventDefault();
+    }
+  });
+
+  els.railGraphBtn.addEventListener("click", onOpenWorldGraph);
+  els.railOutlineToggleBtn.addEventListener("click", () => togglePanel("outline"));
+  els.railBacklinksToggleBtn.addEventListener("click", () => togglePanel("backlinks"));
+  els.railEntryGraphToggleBtn.addEventListener("click", () => togglePanel("entry-graph"));
 
   updateActionStates();
+  initSearch();
   init();
 });
 
@@ -98,6 +155,10 @@ async function init() {
   } catch (err) {
     showStatus(err.message, true);
   }
+  // Re-run now that state.selectedWorldId may have just been set -- the
+  // DOMContentLoaded call site runs before listWorlds() resolves, so the
+  // search box would otherwise stay disabled even once a world loads.
+  initSearch();
   updateActionStates();
 }
 
@@ -113,6 +174,23 @@ function updateActionStates() {
   els.deleteBtn.disabled = !state.openEntryId;
   els.entryGraphBtn.disabled = !state.openEntryId;
   els.worldGraphBtn.disabled = !state.selectedWorldId;
+  els.railGraphBtn.disabled = !state.selectedWorldId;
+  els.railOutlineToggleBtn.disabled = !state.openEntryId;
+  els.railBacklinksToggleBtn.disabled = !state.openEntryId;
+  els.railEntryGraphToggleBtn.disabled = !state.openEntryId;
+}
+
+// Wires up js/search.js with the current world id -- called on every world
+// change (init(), onWorldSelected(), onCreateWorld()), same reasoning as
+// syncEditorState(): the module needs to know which world to search within,
+// and there's no other channel to tell it.
+function initSearch() {
+  window.search.init({
+    inputEl: els.searchInput,
+    resultsEl: els.searchResults,
+    worldId: state.selectedWorldId,
+    onNavigate: (id) => openEntry(id),
+  });
 }
 
 // Opens the modal graph view (js/graph.js) centered on the currently open
@@ -181,6 +259,7 @@ async function onWorldSelected() {
   state.selectedWorldId = els.worldSelect.value;
   closeEditor();
   await loadHierarchy();
+  initSearch();
   updateActionStates();
 }
 
@@ -199,6 +278,7 @@ async function onCreateWorld() {
     els.newWorldName.value = "";
     closeEditor();
     await loadHierarchy();
+    initSearch();
     showStatus(`World "${world.name}" created.`);
   } catch (err) {
     showStatus(err.message, true);
@@ -223,6 +303,9 @@ async function loadHierarchy() {
     // between folders (via onHierarchyChanged) -- if that was the open
     // entry, its breadcrumb folder path just changed.
     renderBreadcrumb();
+    // state.entries was just wholesale-replaced -- refresh whichever
+    // right-rail panel is open (outline/backlinks both read from it).
+    refreshRightPanel();
   } catch (err) {
     showStatus(err.message, true);
   }
@@ -319,6 +402,152 @@ function renderBreadcrumb() {
   });
 }
 
+// ---- Entry header: avatar + timestamps -------------------------------
+//
+// There's no icon-picker UX yet (CLAUDE.md's Entry viewing note), so the
+// circular header icon is a deliberate stand-in: the entry title's first
+// letter on a color hashed from the title, same idea as GitHub/Slack-style
+// letter avatars. Purely derived/display state -- nothing here is persisted
+// (Entry.icon exists on the model but this doesn't read/write it).
+
+// Small, stable string -> hue hash (not cryptographic, just deterministic)
+// so the same title always gets the same color across renders/reloads.
+function hashToColor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
+
+// Called on openEntry() and live on every title keystroke (see the
+// #entry-title "input" listener in DOMContentLoaded) so the avatar tracks
+// an in-progress rename instead of only updating on save. `entry` may be
+// null (closeEditor()) to reset to the empty state.
+function renderEntryAvatar(entry) {
+  const title = ((entry && entry.title) || "").trim();
+  els.entryIcon.textContent = title ? title.charAt(0).toUpperCase() : "";
+  els.entryIcon.style.background = title ? hashToColor(title.toLowerCase()) : "";
+}
+
+// Created/last-modified metadata, right-aligned per CLAUDE.md's UI
+// breakdown. Same "re-render from state.entries" pattern as renderTags() --
+// always looks the open entry up fresh rather than caching a reference.
+function renderTimestamps() {
+  els.entryTimestamps.innerHTML = "";
+  const entry = state.entries.find((e) => e.id === state.openEntryId);
+  if (!entry) {
+    return;
+  }
+  const created = document.createElement("span");
+  created.textContent = `Created ${formatTimestamp(entry.createdAt)}`;
+  const modified = document.createElement("span");
+  modified.textContent = `Last modified ${formatTimestamp(entry.updatedAt)}`;
+  els.entryTimestamps.appendChild(created);
+  els.entryTimestamps.appendChild(modified);
+}
+
+function formatTimestamp(isoString) {
+  if (!isoString) {
+    return "—";
+  }
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+// ---- Right rail: outline / backlinks / entry-graph panels ---------------
+//
+// Only one panel is ever open at a time (or none) -- clicking an already-
+// open panel's rail button closes it, clicking a different one switches.
+// Each panel's actual content rendering is delegated to its own module
+// (outline.js/backlinks.js/graph.js's renderEntryPanel), same arm's-length
+// callback pattern as renderSidebar()/renderTags(); this function only owns
+// which panel is visible.
+function togglePanel(panel) {
+  state.rightPanel = state.rightPanel === panel ? null : panel;
+
+  els.rightPanel.hidden = !state.rightPanel;
+  els.outlinePanel.hidden = state.rightPanel !== "outline";
+  els.backlinksPanel.hidden = state.rightPanel !== "backlinks";
+  els.entryGraphPanel.hidden = state.rightPanel !== "entry-graph";
+
+  for (const btn of [els.railOutlineToggleBtn, els.railBacklinksToggleBtn, els.railEntryGraphToggleBtn]) {
+    btn.setAttribute("aria-pressed", btn.dataset.panel === state.rightPanel ? "true" : "false");
+  }
+
+  refreshRightPanel();
+}
+
+function closeRightPanel() {
+  if (state.rightPanel) {
+    togglePanel(state.rightPanel); // toggling the currently-open panel closes it
+  }
+}
+
+// Re-renders whichever right-rail panel is currently open from the latest
+// state.entries/state.openEntryId -- called from every place that changes
+// either (setEditing, onSaveEntry, openEntry via setEditing, loadHierarchy,
+// onDeleteEntry, onStubEntryCreated), same "single re-render funnel" idea as
+// renderTags()/renderBreadcrumb(). A no-op if no panel is open.
+function refreshRightPanel() {
+  if (!state.rightPanel) {
+    return;
+  }
+  const entry = state.entries.find((e) => e.id === state.openEntryId);
+
+  if (state.rightPanel === "outline") {
+    window.outline.render(els.outlinePanelBody, {
+      markdown: entry ? entry.contentMarkdown : "",
+      onSelect: onOutlineSelect,
+    });
+  } else if (state.rightPanel === "backlinks") {
+    window.backlinks.render(els.backlinksPanelBody, {
+      entries: state.entries,
+      currentEntry: entry,
+      onNavigate: (id) => openEntry(id),
+    });
+  } else if (state.rightPanel === "entry-graph") {
+    if (!entry) {
+      return;
+    }
+    window.graph.renderEntryPanel(els.entryGraphPanel, {
+      mode: "entry",
+      canvasSelector: "#entry-graph-panel-canvas",
+      worldId: state.selectedWorldId,
+      entries: state.entries,
+      centerEntryId: entry.id,
+      onNavigate: (id) => openEntry(id),
+      onEntryCreated: onStubEntryCreated,
+      onError: (msg) => showStatus(msg, true),
+    });
+  }
+}
+
+// Outline click -> jump to that heading. In edit mode, places the caret on
+// the textarea's real raw-source line (the only surface that's actually
+// visible while editing). In view mode the textarea is hidden entirely (see
+// editor.js's rendered-preview section), so this scrolls the corresponding
+// rendered heading element instead, matched by its position among all
+// headings (outline.js hands back the same `index` it rendered with, which
+// lines up with the preview's own heading order since both are parsed from
+// the same source in document order).
+function onOutlineSelect(heading) {
+  if (state.editing) {
+    els.entryContent.focus();
+    els.entryContent.setSelectionRange(heading.offset, heading.offset + heading.lineLength);
+  } else {
+    const headingEls = els.entryContentPreview.querySelectorAll("h1, h2, h3, h4, h5, h6");
+    const target = headingEls[heading.index];
+    if (target && target.scrollIntoView) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+}
+
 // Re-wires editor.js with the current world id, entry list (for its
 // [[wikilink]] title-resolution index), and the shared textarea/overlay/
 // popup elements. Called after anything that changes state.selectedWorldId
@@ -368,6 +597,7 @@ async function setEditing(editing) {
   }
   state.editing = editing;
   els.entryTitle.readOnly = !editing;
+  els.entrySummary.readOnly = !editing;
   els.entryContent.readOnly = !editing;
   els.entryContentWrapper.hidden = !editing;
   els.entryContentPreview.hidden = editing;
@@ -383,10 +613,12 @@ async function setEditing(editing) {
   // Single call site for both directions of the view/edit transition --
   // openEntry(), closeEditor(), onToggleEditing(), and both Escape paths all
   // funnel through setEditing(), so this is enough to keep the tag pill
-  // row's editable controls and the breadcrumb in sync without needing a
-  // call in each of them.
+  // row, breadcrumb, timestamps, and whichever right-rail panel is open in
+  // sync without needing a call in each of them.
   renderTags();
   renderBreadcrumb();
+  renderTimestamps();
+  refreshRightPanel();
   if (editing) {
     els.entryContent.focus();
   } else {
@@ -397,6 +629,7 @@ async function setEditing(editing) {
     // never actually turned off. Neither field should hold focus in view
     // mode anyway, since nothing there is interactive.
     els.entryTitle.blur();
+    els.entrySummary.blur();
     els.entryContent.blur();
   }
 }
@@ -452,6 +685,10 @@ function onEntryTagsChanged(updatedEntry) {
 function onStubEntryCreated(entry) {
   state.entries.push(entry);
   renderSidebar();
+  // A new entry could change the currently-open entry's backlinks (if it
+  // resolves a link that pointed at the just-created title) -- cheap enough
+  // to just always refresh rather than trying to detect that specifically.
+  refreshRightPanel();
 }
 
 // folderId: creates the entry inside that folder, or at the world's root if
@@ -502,9 +739,11 @@ async function openEntry(id, { startEditing = false } = {}) {
     state.openEntryId = entry.id;
     state.dirty = false;
     els.entryTitle.value = entry.title || "";
+    els.entrySummary.value = entry.summary || "";
     els.entryContent.value = entry.contentMarkdown || "";
     els.editor.hidden = false;
     els.editorEmpty.hidden = true;
+    renderEntryAvatar(entry);
     renderSidebar();
     // Entries open read-only by default, except startEditing (new entries --
     // see onCreateEntry). Either way this also resyncs editor.js -- setting
@@ -521,9 +760,12 @@ function closeEditor() {
   state.openEntryId = null;
   state.dirty = false;
   els.entryTitle.value = "";
+  els.entrySummary.value = "";
   els.entryContent.value = "";
   els.editor.hidden = true;
   els.editorEmpty.hidden = false;
+  renderEntryAvatar(null);
+  closeRightPanel();
   setEditing(false);
 }
 
@@ -549,6 +791,7 @@ async function onSaveEntry() {
   try {
     const updated = await window.api.updateEntry(state.openEntryId, {
       title,
+      summary: els.entrySummary.value,
       contentMarkdown: els.entryContent.value,
     });
     state.dirty = false;
@@ -567,6 +810,13 @@ async function onSaveEntry() {
     renderTags();
     // Title may be the breadcrumb's last segment.
     renderBreadcrumb();
+    // Title drives the avatar letter/color; updatedAt just changed too.
+    renderEntryAvatar(updated);
+    renderTimestamps();
+    // Content/title may have changed -- outline headings, backlink matches
+    // (a title rename can resolve/unresolve other entries' links to this
+    // one), and the relation graph's node label can all be stale otherwise.
+    refreshRightPanel();
     showStatus("Saved.");
     return true;
   } catch (err) {
@@ -594,6 +844,10 @@ async function onDeleteEntry(id) {
       // currently-open entry -- rebuild the resolution index so it flips
       // to unresolved. (closeEditor() already does this in the other branch.)
       syncEditorState();
+      // Same reasoning -- the deleted entry may have been a backlink source,
+      // an entry-graph neighbor, or (moot for outline, but harmless) needed
+      // for something else keyed off state.entries.
+      refreshRightPanel();
     }
     renderSidebar();
     showStatus("Entry deleted.");
