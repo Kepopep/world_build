@@ -1,5 +1,6 @@
 package com.hisder.worldBuilding.common;
 
+import com.hisder.worldBuilding.ai.AiGenerationException;
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.http.HttpStatus;
@@ -30,6 +31,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({EntityExistsException.class, IllegalStateException.class})
     public ResponseEntity<Map<String, String>> handleConflict(RuntimeException ex) {
         return body(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(AiGenerationException.class)
+    public ResponseEntity<Map<String, String>> handleAiGenerationFailure(AiGenerationException ex) {
+        return body(HttpStatus.BAD_GATEWAY, ex.getMessage());
     }
 
     private ResponseEntity<Map<String, String>> body(HttpStatus status, String message) {
