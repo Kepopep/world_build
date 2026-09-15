@@ -1,11 +1,24 @@
 package com.hisder.worldBuilding.world.contract;
 
-/**
- * {@code rootEntryId} is the id of the {@code LoreEntry} that has this world's id as its
- * {@code worldId} and no {@code parentId} of its own ({@code null} if the world has no root yet).
- */
+import com.hisder.worldBuilding.world.World;
+
+import java.time.LocalDateTime;
+
 public record WorldResponse(
         Long id,
         String name,
-        Long rootEntryId
-) {}
+        String icon,
+        LocalDateTime createdAt,
+        LocalDateTime updatedAt
+) {
+
+    public static WorldResponse from(World world) {
+        return new WorldResponse(
+                world.getId(),
+                world.getName(),
+                world.getIcon(),
+                world.getCreatedAt(),
+                world.getUpdatedAt()
+        );
+    }
+}

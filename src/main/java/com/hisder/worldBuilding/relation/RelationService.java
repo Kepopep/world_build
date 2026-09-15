@@ -1,152 +1,142 @@
 package com.hisder.worldBuilding.relation;
 
-import com.hisder.worldBuilding.enrty.LoreEntry;
-import com.hisder.worldBuilding.enrty.LoreEntryRepository;
+import com.hisder.worldBuilding.entry.Entry;
+import com.hisder.worldBuilding.entry.EntryRepository;
 import com.hisder.worldBuilding.relation.contract.RelationResponse;
 import com.hisder.worldBuilding.relation.definition.RelationDefinition;
 import com.hisder.worldBuilding.relation.definition.RelationDefinitionRepository;
+import com.hisder.worldBuilding.world.World;
+import com.hisder.worldBuilding.world.WorldRepository;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.stream.Stream;
 
-
+/**
+ * Owns both RelationDefinition and Relation logic -- they're always used
+ * together (creating a Relation needs to resolve a RelationDefinition), so
+ * this stays one service even though RelationDefinitionController and
+ * RelationController are split (different resource roots).
+ */
 @Service
+@Transactional
 public class RelationService {
-    private final EntryRelationRepository entryRelationRepository;
-    private final RelationDefinitionRepository relationDefinitionRepository;
-    private final LoreEntryRepository loreEntryRepository;
 
-    public RelationService(EntryRelationRepository entryRelationRepository,
-                          RelationDefinitionRepository relationDefinitionRepository,
-                          LoreEntryRepository loreEntryRepository) {
-        this.entryRelationRepository = entryRelationRepository;
+    private final RelationRepository relationRepository;
+    private final RelationDefinitionRepository relationDefinitionRepository;
+    private final EntryRepository entryRepository;
+    private final WorldRepository worldRepository;
+
+    public RelationService(RelationRepository relationRepository,
+                            RelationDefinitionRepository relationDefinitionRepository,
+                            EntryRepository entryRepository,
+                            WorldRepository worldRepository) {
+        this.relationRepository = relationRepository;
         this.relationDefinitionRepository = relationDefinitionRepository;
-        this.loreEntryRepository = loreEntryRepository;
+        this.entryRepository = entryRepository;
+        this.worldRepository = worldRepository;
     }
 
-    @Transactional
-    public RelationDefinition createNewDefinition(String name, String reverseName) {
+    @Transactional(readOnly = true)
+    public List<RelationDefinition> listRelationDefinitions(Long worldId) {
+        getWorldOrThrow(worldId);
+        return relationDefinitionRepository.findByWorldIdOrderByNameAsc(worldId);
+    }
+
+    public RelationDefinition createRelationDefinition(Long worldId, String name, String reverseName) {
+        World world = getWorldOrThrow(worldId);
         if (name == null || name.isBlank()) {
-            throw new IllegalArgumentException("Relation name cannot be blank");
+            throw new IllegalArgumentException("Relation definition name must not be blank");
         }
         if (reverseName == null || reverseName.isBlank()) {
-            throw new IllegalArgumentException("Reverse name cannot be blank");
+            throw new IllegalArgumentException("Relation definition reverseName must not be blank");
         }
-
-        RelationDefinition definition = new RelationDefinition();
-        definition.setName(name);
-        definition.setReverseName(reverseName);
-        return relationDefinitionRepository.save(definition);
+        return relationDefinitionRepository.save(new RelationDefinition(world, name.trim(), reverseName.trim()));
     }
 
-    public List<RelationDefinition> getAll() {
-        return relationDefinitionRepository.findAll();
-    }
-
-    @Transactional
-    public EntryRelation createRelation(Long sourceId, Long targetId, Long relationDefinitionId) {
-        if (sourceId.equals(targetId)) {
-            throw new IllegalArgumentException(
-                    "Cannot create self-relation: source and target must be different");
-        }
-
-        if (entryRelationRepository.existsBySourceIdAndTargetIdAndRelationDefinitionId(
-                sourceId, targetId, relationDefinitionId)) {
-            throw new IllegalStateException("This relation already exists");
-        }
-
-        if (entryRelationRepository.existsBySourceIdAndTargetIdAndRelationDefinitionId(
-                targetId, sourceId, relationDefinitionId)) {
-            throw new IllegalStateException(
-                    "Reverse relation already exists: " + targetId +
-                            " already has this relation type to " + sourceId);
-        }
-
-        LoreEntry source = loreEntryRepository.findById(sourceId)
-                .orElseThrow(() -> 
-                        new EntityNotFoundException("Source LoreEntry not found: " + sourceId));
-
-        LoreEntry target = loreEntryRepository.findById(targetId)
-                .orElseThrow(() -> 
-                        new EntityNotFoundException("Target LoreEntry not found: " + targetId));
-
-        RelationDefinition definition = relationDefinitionRepository.findById(relationDefinitionId)
-                .orElseThrow(() -> 
-                        new EntityNotFoundException("RelationDefinition not found: " + relationDefinitionId));
-
-        // Create and save relation
-        EntryRelation relation = new EntryRelation();
-        relation.setSource(source);
-        relation.setTarget(target);
-        relation.setRelationDefinition(definition);
-
-        return entryRelationRepository.save(relation);
-    }
-
-    @Transactional
-    public void deleteRelation(Long relationId) {
-        if (!entryRelationRepository.existsById(relationId)) {
-            throw new EntityNotFoundException("Relation not found: " + relationId);
-        }
-        entryRelationRepository.deleteById(relationId);
-    }
-
-    public List<RelationResponse> getRelations(Long entryId) {
-        if (!loreEntryRepository.existsById(entryId)) {
-            throw new EntityNotFoundException("LoreEntry not found: " + entryId);
-        }
-
-        List<RelationResponse> outgoing = entryRelationRepository
-                .findBySourceId(entryId)
-                .stream()
-                .map(relation -> new RelationResponse(
-                        relation.getId(),
-                        relation.getTarget().getId(),
-                        relation.getTarget().getName(),
-                        relation.getTarget().getType() != null ? relation.getTarget().getType().name() : null,
-                        relation.getRelationDefinition().getName(),
-                        true  // isOutgoing = true
-                ))
+    /**
+     * Every relation touching this entry, from the entry's own point of
+     * view -- outgoing (entry is the source, label = definition.name) and
+     * incoming (entry is the target, label = definition.reverseName)
+     * combined into one list, ordered by relatedEntryTitle.
+     *
+     * <p>Deliberately maps straight to {@link RelationResponse} here, inside
+     * the transaction, rather than returning bare {@link Relation} entities
+     * for the controller to map: {@code sourceEntry}/{@code targetEntry} are
+     * lazy proxies, and relying on some other operation (e.g. the sort
+     * comparator) to have incidentally touched the right one first is
+     * fragile -- {@code Stream.sorted()} skips calling the comparator
+     * entirely for a 0/1-element stream, so a single-relation entry would
+     * leave its related entry's proxy uninitialized. Touching it past the
+     * transaction boundary then fails specifically for the
+     * {@code contentMarkdown} column ({@code @Lob}/CLOB lazy access needs a
+     * real non-autocommit transaction; open-in-view reopens one in
+     * autocommit mode). Building the response here guarantees every field is
+     * read while the transaction is still open.
+     */
+    @Transactional(readOnly = true)
+    public List<RelationResponse> listRelationsForEntry(Long entryId) {
+        Entry entry = getEntryOrThrow(entryId);
+        return relationRepository.findBySourceEntryIdOrTargetEntryId(entry.getId(), entry.getId()).stream()
+                .map(relation -> RelationResponse.from(relation, entry.getId()))
+                .sorted((a, b) -> a.relatedEntryTitle().compareToIgnoreCase(b.relatedEntryTitle()))
                 .toList();
-
-        List<RelationResponse> incoming = entryRelationRepository
-                .findByTargetId(entryId)
-                .stream()
-                .map(relation -> new RelationResponse(
-                        relation.getId(),
-                        relation.getSource().getId(),
-                        relation.getSource().getName(),
-                        relation.getSource().getType() != null ? relation.getSource().getType().name() : null,
-                        relation.getRelationDefinition().getReverseName(),
-                        false  // isOutgoing = false
-                ))
-                .toList();
-
-        return Stream.concat(outgoing.stream(), incoming.stream()).toList();
     }
 
-    @Transactional
-    public void deleteAllRelationsForEntry(Long entryId) {
-        entryRelationRepository.deleteBySourceIdOrTargetId(entryId, entryId);
+    /**
+     * Validation order: cheap self-relation check first, then resolve all
+     * three ids (404 if any missing), then cross-world guard, then
+     * duplicate-in-either-direction check scoped to this relationDefinitionId
+     * (two entries can have relations of different types).
+     */
+    public RelationResponse createRelation(Long sourceEntryId, Long targetEntryId, Long relationDefinitionId) {
+        if (sourceEntryId != null && sourceEntryId.equals(targetEntryId)) {
+            throw new IllegalArgumentException("Cannot relate an entry to itself");
+        }
+        Entry source = getEntryOrThrow(sourceEntryId);
+        Entry target = getEntryOrThrow(targetEntryId);
+        RelationDefinition relationDefinition = getRelationDefinitionOrThrow(relationDefinitionId);
+
+        Long sourceWorldId = source.getWorld().getId();
+        if (!target.getWorld().getId().equals(sourceWorldId) || !relationDefinition.getWorld().getId().equals(sourceWorldId)) {
+            throw new IllegalArgumentException("Source entry, target entry, and relation definition must all belong to the same world");
+        }
+
+        boolean duplicate = relationRepository.existsBySourceEntryIdAndTargetEntryIdAndRelationDefinitionId(
+                source.getId(), target.getId(), relationDefinition.getId())
+                || relationRepository.existsBySourceEntryIdAndTargetEntryIdAndRelationDefinitionId(
+                target.getId(), source.getId(), relationDefinition.getId());
+        if (duplicate) {
+            throw new IllegalStateException("A relation of this type already exists between these entries");
+        }
+
+        Relation saved = relationRepository.save(new Relation(source, target, relationDefinition));
+        return RelationResponse.from(saved, source.getId());
     }
 
-    public boolean relationExists(Long sourceId, Long targetId) {
-        return entryRelationRepository.existsBySourceIdAndTargetId(sourceId, targetId);
+    public void deleteRelation(Long id) {
+        Relation relation = getRelationOrThrow(id);
+        relationRepository.delete(relation);
     }
 
-    public long getRelationCount(Long entryId) {
-        long outgoing = entryRelationRepository.countBySourceId(entryId);
-        long incoming = entryRelationRepository.countByTargetId(entryId);
-        return outgoing + incoming;
+    private World getWorldOrThrow(Long worldId) {
+        return worldRepository.findById(worldId)
+                .orElseThrow(() -> new EntityNotFoundException("World not found: " + worldId));
     }
 
-    public List<EntryRelation> getRelationsByType(Long entryId, Long relationDefinitionId) {
-        List<EntryRelation> relations = entryRelationRepository.findAllRelationsForEntry(entryId);
-        return relations.stream()
-                .filter(r -> r.getRelationDefinition().getId().equals(relationDefinitionId))
-                .toList();
+    private Entry getEntryOrThrow(Long id) {
+        return entryRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Entry not found: " + id));
+    }
+
+    private RelationDefinition getRelationDefinitionOrThrow(Long id) {
+        return relationDefinitionRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Relation definition not found: " + id));
+    }
+
+    private Relation getRelationOrThrow(Long id) {
+        return relationRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Relation not found: " + id));
     }
 }

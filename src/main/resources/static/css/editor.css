@@ -1,0 +1,344 @@
+/* Wikilink editor overlay + autocomplete popup styling, plus the
+   view/edit-mode toggle (entries open read-only by default -- see
+   #edit-toggle-btn wiring in js/app.js -- and only become editable after
+   clicking Edit).
+   Layered on top of css/base.css (which still owns #entry-content's
+   box/typography rules) -- this file only adds the overlay/autocomplete/
+   edit-mode pieces described in
+   docs/design/autocomplete-and-entity-references.md sections 2.1-2.5. Left
+   separate from base.css per that doc: this is not folded into a fuller
+   variables.css/layout.css split, since that split doesn't exist yet in
+   this skeleton. */
+
+/* Edit/Save/Delete toolbar: upper-left of the content panel, above the
+   title, in that fixed order. */
+.content-toolbar {
+  display: flex;
+  justify-content: flex-start;
+  gap: 0.4rem;
+  /* No margin-bottom -- #editor's own flex `gap` (base.css) already spaces
+     this from the title input below, consistent with the spacing between
+     every other row in the panel. */
+}
+
+/* Minimalist icon-only buttons -- a single small glyph, no label, so the
+   toolbar reads as a quiet row of controls rather than three full-size
+   buttons. Overrides base.css's generic `button` padding (a class selector
+   beats a bare-tag one, so no !important needed). */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+}
+
+.icon-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+#edit-toggle-btn[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+/* Save reuses base.css's neutral button look rather than its own accent
+   fill -- only Delete gets a distinct color (its existing button.danger /
+   #delete-btn rule in base.css already does that), so the toolbar doesn't
+   read as two "important" buttons and one plain one. Same specificity as
+   base.css's #save-btn rule (one ID each); this file is linked after
+   base.css, so it wins by source order. */
+#save-btn {
+  background: var(--color-panel);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+#save-btn:hover:not(:disabled) {
+  background: var(--color-bg-alt);
+}
+
+/* Visual marker that edit mode is on: an outline (not border, so it doesn't
+   shift layout) around the fields that became editable, in the same accent
+   color already used elsewhere for active/selected state (e.g.
+   .entry-list-item.active, #save-btn). */
+#editor.editing #entry-title,
+#editor.editing #entry-summary,
+#editor.editing #entry-content-wrapper {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+#entry-content-wrapper {
+  position: relative;
+  flex: 1;
+  min-height: 300px;
+}
+
+#entry-content-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid transparent;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow: auto;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+#entry-content {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  color: transparent;
+  caret-color: var(--color-text);
+  background: transparent;
+  /* Independent resizing would desync the textarea's box from the
+     absolutely-positioned overlay behind it, so it's disabled here. */
+  resize: none;
+}
+
+/* View mode: normal arrow, not the text-input I-beam, since nothing here is
+   typeable (the title's own mousedown listener in app.js blocks focus/caret/
+   selection the same way editor.js's onTextareaMouseDown does for the
+   content textarea). editor.js's hover handling (onTextareaMouseMove) still
+   swaps #entry-content to a hand cursor over an actual [[reference]] via an
+   inline style, which overrides this. Edit mode gets no override on either
+   field, so it falls back to the ordinary text-input cursor. Also strips any
+   browser default focus ring: app.js's setEditing(false) blurs both fields
+   when leaving edit mode, but this is a CSS-level safety net for that --
+   left showing, a stray focus ring reads as the .editing outline marker
+   below never having turned off. */
+#editor:not(.editing) #entry-title,
+#editor:not(.editing) #entry-summary,
+#editor:not(.editing) #entry-content {
+  cursor: default;
+  outline: none;
+}
+
+#editor:not(.editing) #entry-content-wrapper {
+  outline: none;
+}
+
+/* cursor: pointer here is genuinely active for the rendered preview's
+   .wikilink-resolved/.wikilink-unresolved spans (real DOM, real hover) --
+   see js/editor.js's onPreviewClick/onPreviewDblClick. It's still inert for
+   the edit-mode overlay's copies of these classes, since that overlay is
+   pointer-events: none (the textarea on top owns all mouse events there,
+   and clicking a reference while editing intentionally just places the
+   caret rather than navigating -- see CLAUDE.md's View/edit mode notes). */
+.wikilink-resolved {
+  color: var(--color-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.wikilink-unresolved {
+  color: var(--color-warn, #d98c46);
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+/* Autocomplete popup -- positioned via JS (left/top set to the overlay's
+   zero-width #caret-marker span's bounding rect), position: fixed so those
+   viewport-relative coordinates need no scroll-offset math. */
+#wikilink-autocomplete {
+  position: fixed;
+  z-index: 20;
+  min-width: 180px;
+  max-width: 320px;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 0.25rem;
+}
+
+.wikilink-suggestion {
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  color: var(--color-text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wikilink-suggestion:hover,
+.wikilink-suggestion.selected {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* Markdown formatting toolbar (Undo/Redo/heading dropdown/Bold/Italic/.../
+   Code block) -- same minimalist icon-button spirit as .content-toolbar
+   above (in fact reuses .icon-btn directly), just a longer row. Disabling
+   is handled entirely in JS (editor.js toggles each control's `disabled`
+   attribute with editingEnabled, same gating rule as every other editable
+   control in this panel -- see CLAUDE.md's View/edit mode section) rather
+   than a CSS attribute selector, so there's nothing edit-mode-specific to
+   style here. */
+.markdown-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.markdown-toolbar select {
+  padding: 0.3rem 0.4rem;
+  font-size: 0.85rem;
+}
+
+/* Footer label under the editor: "Markdown · N words", right-aligned per
+   the screenshot. Muted/small like #status-message, not a call to action. */
+.editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+
+/* Extended syntax-highlighting token classes for the overlay, on top of the
+   existing .wikilink-resolved/.wikilink-unresolved rules above.
+   HARD CONSTRAINT: only color/font-weight/font-style/text-decoration/
+   background-color may be set here -- never font-size/line-height/padding/
+   margin/border/letter-spacing. The overlay <div> must stay pixel-identical
+   in layout to the transparent textarea on top of it (scroll-sync, the
+   autocomplete caret-marker, and wikilink hover/click hit-testing all
+   depend on that); "headers colored, in a larger weight" per CLAUDE.md
+   means font-weight: 700, not a bigger font-size. */
+.md-header {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.md-list-marker {
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
+.md-blockquote {
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.md-bold {
+  font-weight: 700;
+}
+
+.md-italic {
+  font-style: italic;
+}
+
+.md-inline-code {
+  color: var(--color-warn, #d98c46);
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.md-code-block {
+  color: var(--color-text);
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Rendered markdown preview (view mode only). Real DOM, no textarea
+   underneath -- unlike the overlay above, font-size/spacing/layout rules
+   are fully safe here. */
+.markdown-preview {
+  flex: 1;
+  min-height: 300px;
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-panel);
+  color: var(--color-text);
+  overflow-y: auto;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.6;
+}
+
+.markdown-preview-empty {
+  color: var(--color-muted);
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  margin: 1rem 0 0.5rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+.markdown-preview h1 {
+  font-size: 1.6rem;
+}
+.markdown-preview h2 {
+  font-size: 1.35rem;
+}
+.markdown-preview h3 {
+  font-size: 1.15rem;
+}
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  font-size: 1rem;
+}
+
+.markdown-preview p {
+  margin: 0 0 0.75rem;
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0 0 0.75rem;
+  padding-left: 1.5rem;
+}
+.markdown-preview li {
+  margin: 0.15rem 0;
+}
+
+.markdown-preview blockquote {
+  margin: 0 0 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.markdown-preview code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.markdown-preview pre {
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+.markdown-preview pre code {
+  background: none;
+  padding: 0;
+}

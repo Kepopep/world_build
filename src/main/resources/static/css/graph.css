@@ -1,0 +1,261 @@
+/* Modal + SVG canvas for the client-side [[wikilink]] relationship graph
+   (js/graph.js). Layered on top of css/base.css the same way editor.css/
+   tags.css/sidebar.css are -- uses the same --color-* tokens defined there,
+   no new ones introduced. */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  width: min(90vw, 960px);
+  height: min(85vh, 640px);
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: var(--color-text);
+}
+
+/* Groups the recenter + close buttons as a single flex child on the right,
+   so .modal-header's justify-content: space-between still only ever sees
+   two children (title, actions) -- adding the recenter button as a third
+   direct child would have spread all three apart instead of keeping them
+   together on the right. */
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* user-select: none is the actual fix for text-selection-while-dragging --
+   the drag handlers' pointerdown preventDefault() (js/graph.js) stops the
+   click/drag itself from placing a text cursor, but the browser's built-in
+   "mousedown + drag = select nearby text" behavior is a separate mechanism
+   it doesn't reliably suppress. Scoped to the whole modal panel / embedded
+   panel, not just the <svg>, since a fast drag can carry the pointer past
+   the canvas edge onto the modal's own title/buttons while still
+   pointer-captured to the node being dragged -- a selection dragged across
+   THAT text is exactly as annoying as one over the graph itself. */
+#graph-modal .modal-panel,
+#entry-graph-panel {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+}
+
+#graph-canvas {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg);
+}
+
+/* Camera pan/zoom (js/graph.js's attachCameraControls) -- cursor: grab on
+   the empty canvas background signals "drag to pan", distinct from each
+   node circle's own inline cursor style (grab/grabbing, set directly in
+   attachDragHandlers) which signals "drag to reposition this node" instead.
+   touch-action: none matches the same reasoning already applied per-node-
+   circle (circle.style.touchAction in attachDragHandlers) -- lets pointer
+   events drive panning instead of the browser's own touch-scroll/pinch
+   gestures fighting it. Applies to both the modal canvas and the embedded
+   right-rail panel canvas -- pan/zoom is wired generically for both by
+   createRenderer(), see CLAUDE.md's task note on that. */
+#graph-canvas,
+#entry-graph-panel-canvas {
+  cursor: grab;
+  touch-action: none;
+}
+
+#graph-canvas.graph-panning,
+#entry-graph-panel-canvas.graph-panning {
+  cursor: grabbing;
+}
+
+.graph-node-label {
+  fill: var(--color-muted);
+  opacity: 0.75;
+  /* font-size is intentionally NOT set here -- a CSS length (rem/px/em)
+     renders at a constant SCREEN pixel size no matter how the <svg>'s
+     viewBox is zoomed, unlike a circle's r/cx/cy or a line's coordinates,
+     which are plain unitless SVG user-space numbers that scale naturally
+     with the viewBox. js/graph.js's drawNodeInitial() sets font-size as an
+     SVG presentation ATTRIBUTE instead, precisely so labels shrink/grow
+     with zoom the same way nodes/edges already do. */
+  pointer-events: none;
+  transition: opacity 150ms ease, fill 150ms ease, font-weight 150ms ease;
+}
+
+.graph-empty-message {
+  fill: var(--color-muted);
+  font-size: 0.9rem;
+  text-anchor: middle;
+}
+
+/* Small embedded entry-graph panel (js/graph.js's renderEntryPanel), right
+   rail -- same node/edge rendering as the modal canvas above, just a
+   smaller, chrome-free canvas hosted inside #right-panel (css/rail.css)
+   instead of a full #graph-modal. */
+#entry-graph-panel-canvas {
+  width: 100%;
+  height: 260px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+}
+
+/* Relation edges (solid, labeled) vs wikilink-derived edges (dashed,
+   unlabeled) -- js/graph.js's drawEdgeInitial() sets this class per
+   edge.kind, see CLAUDE.md's graph merge decision. */
+.graph-edge-wikilink {
+  stroke-dasharray: 4 3;
+}
+
+.graph-edge-label {
+  fill: var(--color-muted);
+  font-size: 0.7rem;
+  text-anchor: middle;
+  pointer-events: none;
+  transition: opacity 150ms ease, filter 150ms ease;
+}
+
+/* ---- Hover interaction (js/graph.js's createHoverController) ----
+   Hovering a node highlights it + its direct neighbors and fades everything
+   else, per the live force-simulation graph's hover spec. Every element that
+   can carry one of these classes (.graph-node-circle, .graph-node-label,
+   .graph-edge-line, .graph-edge-label) already has its own `transition` rule
+   above/below so toggling a class animates rather than snaps -- these rules
+   only ever set the *end* state, never the transition itself, to keep that
+   in one place per element type.
+
+   `.graph-node-circle`/`.graph-edge-line` are base classes every node/edge
+   gets unconditionally (added in drawNodeInitial/drawEdgeInitial) purely so
+   there's always a stable selector to hang a transition on -- before this,
+   drawNodeInitial set no class on the circle at all, and drawEdgeInitial
+   only conditionally set .graph-edge-wikilink. */
+
+.graph-node-circle {
+  transition: opacity 150ms ease, filter 150ms ease, transform 150ms ease;
+  /* SVG geometry (cx/cy/r) is what the live simulation's positionNode()
+     repositions every tick -- `transform: scale(...)` below is deliberately
+     a CSS-only visual enlargement layered on top of that, not a change to
+     r itself, so hovering never fights the per-tick position write. Circles
+     have no natural CSS box to scale from without this -- fill-box + center
+     origin makes `scale()` grow around the circle's own center rather than
+     the SVG viewport's origin. */
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.graph-edge-line {
+  transition: opacity 150ms ease, filter 150ms ease, stroke 150ms ease;
+}
+
+/* The hovered node itself: enlarged + glowing (spec item 1). */
+.graph-node-hovered {
+  transform: scale(1.35);
+  filter: drop-shadow(0 0 6px var(--color-accent));
+}
+
+/* Direct neighbors of the hovered node: glow only, no enlargement -- keeps
+   the hovered node visually distinct as the "center" of attention (spec
+   item 2). */
+.graph-node-neighbor {
+  filter: drop-shadow(0 0 5px var(--color-accent));
+}
+
+/* Every other node: fades out (spec item 4). Stacks multiplicatively with
+   the existing fill-opacity (1 for resolved, 0.5 for unresolved -- see
+   nodeFillOpacity() in graph.js) rather than overriding it, so an
+   unresolved/stub node dims to *below* its normal 0.5, not back up to it. */
+.graph-node-dimmed {
+  opacity: 0.25;
+}
+
+/* Full-world graph only (js/graph.js only adds this class when
+   config.mode === "world" -- see createHoverController's shrinkDimmedToDots
+   param): dimmed nodes shrink down to small unlabeled dots on top of the
+   fade above, rather than just fading at full size. Stacks with
+   .graph-node-dimmed (both classes are always added together), so this only
+   needs to add the shrink -- the opacity fade already comes from there. */
+.graph-node-dot {
+  transform: scale(0.45);
+}
+
+/* Hovered + neighbor labels: MORE prominent than their normal resting
+   opacity/color, not just "not dimmed" (spec item 5). */
+.graph-label-prominent {
+  fill: var(--color-text);
+  opacity: 1;
+  font-weight: 600;
+}
+
+.graph-label-dimmed {
+  opacity: 0.2;
+}
+
+/* Full-world graph only, paired with .graph-node-dot above -- the dimmed
+   node's label disappears entirely ("dots without labels") instead of just
+   fading. Opacity rather than `display`/`visibility` so the existing
+   transition on .graph-node-label still animates it out smoothly. */
+.graph-label-hidden {
+  opacity: 0;
+}
+
+/* Edges connecting the hovered node to its neighbors: bright glow (spec
+   item 3), same fixed accent-colored glow regardless of the edge's own
+   resting stroke color -- same convention .graph-node-hovered/-neighbor
+   already use (their glow is always accent too, even on an unresolved/warn-
+   colored node). Deliberately does NOT touch `stroke` (unlike an earlier
+   version of this rule, which forced it to accent) -- js/graph.js's
+   drawEdgeInitial/edgeStrokeColor now give a resting edge a *meaningful*
+   color (accent for a resolved<->resolved link, warn for a link touching a
+   nonexistent entity), and overriding that hue away on hover would hide the
+   exact distinction highlighting is meant to draw attention to. */
+.graph-edge-highlighted {
+  opacity: 1;
+  filter: drop-shadow(0 0 4px var(--color-accent));
+}
+
+.graph-edge-dimmed {
+  opacity: 0.15;
+}
+
+/* ---- Zoom-driven label cutoff (js/graph.js's updateViewBox, LABEL_HIDE_ZOOM) ----
+   Below a certain zoom-out level, node labels disappear entirely, leaving
+   only dots + connection lines visible (spec: "the farther zoomed out ...
+   down to a threshold where they disappear entirely"). !important is used
+   deliberately here -- the ONLY place in this file that does -- because the
+   hover-highlight feature above already drives a label's opacity via
+   .graph-label-prominent/-dimmed/-hidden depending on hover state, and this
+   zoom cutoff needs to win unconditionally over all three regardless of
+   whatever's currently hovered (the spec has no stated exception for a
+   hovered label at extreme zoom-out). The existing transition on
+   .graph-node-label still applies, so this fades rather than snaps. */
+svg.graph-labels-hidden .graph-node-label {
+  opacity: 0 !important;
+}

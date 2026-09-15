@@ -1,8 +1,11 @@
 package com.hisder.worldBuilding.graph;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import com.hisder.worldBuilding.graph.contract.GraphResponse;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/graph")
@@ -14,34 +17,13 @@ public class GraphController {
         this.graphService = graphService;
     }
 
-    @GetMapping("/all")
-    public ResponseEntity<GraphService.GraphData> getFullGraph() {
-        return ResponseEntity.ok(graphService.getFullGraph());
+    @GetMapping("/world/{worldId}")
+    public GraphResponse worldGraph(@PathVariable Long worldId) {
+        return graphService.worldGraph(worldId);
     }
 
-    @GetMapping("/entry/{entryId}")
-    public ResponseEntity<?> getEntryGraph(
-            @PathVariable Long entryId,
-            @RequestParam(defaultValue = "2") int depth) {
-
-        return graphService.getEntryGraph(entryId, depth)
-                .<ResponseEntity<?>>map(ResponseEntity::ok)
-                .orElseGet(() -> ResponseEntity
-                        .status(HttpStatus.NOT_FOUND)
-                        .body(new GraphService.ErrorResponse(
-                                "Entry not found: " + entryId
-                        )));
-    }
-
-    @GetMapping("/type/{type}")
-    public ResponseEntity<GraphService.GraphData> getGraphByType(
-            @PathVariable String type) {
-
-        return ResponseEntity.ok(graphService.getGraphByType(type));
-    }
-
-    @GetMapping("/stats")
-    public ResponseEntity<GraphService.GraphStats> getGraphStats() {
-        return ResponseEntity.ok(graphService.getGraphStats());
+    @GetMapping("/entry/{id}")
+    public GraphResponse entryGraph(@PathVariable Long id, @RequestParam(required = false, defaultValue = "1") int depth) {
+        return graphService.entryGraph(id, depth);
     }
 }

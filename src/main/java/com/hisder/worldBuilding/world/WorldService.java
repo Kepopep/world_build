@@ -1,58 +1,36 @@
 package com.hisder.worldBuilding.world;
 
-import com.hisder.worldBuilding.enrty.LoreEntry;
-import com.hisder.worldBuilding.enrty.LoreEntryRepository;
-import com.hisder.worldBuilding.world.contract.WorldCreateRequest;
-import com.hisder.worldBuilding.world.contract.WorldResponse;
-import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 @Service
+@Transactional
 public class WorldService {
 
     private final WorldRepository worldRepository;
-    private final LoreEntryRepository loreEntryRepository;
 
-    public WorldService(WorldRepository worldRepository, LoreEntryRepository loreEntryRepository) {
+    public WorldService(WorldRepository worldRepository) {
         this.worldRepository = worldRepository;
-        this.loreEntryRepository = loreEntryRepository;
     }
 
-    public List<WorldResponse> getAll() {
-        return worldRepository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+    @Transactional(readOnly = true)
+    public List<World> listWorlds() {
+        return worldRepository.findAll();
     }
 
-    public WorldResponse get(Long id) throws EntityNotFoundException {
-        return toResponse(requireWorld(id));
-    }
-
-    public World create(WorldCreateRequest request) throws EntityExistsException {
-        if (worldRepository.existsByName(request.name())) {
-            throw new EntityExistsException("World: " + request.name() + " already exists");
+    public World createWorld(String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("World name must not be blank");
         }
-
-        World world = new World();
-        world.setName(request.name());
-        return worldRepository.save(world);
+        return worldRepository.save(new World(name.trim(), null));
     }
 
-    private World requireWorld(Long id) throws EntityNotFoundException {
+    @Transactional(readOnly = true)
+    public World getWorld(Long id) {
         return worldRepository.findById(id)
-                .orElseThrow(() -> new EntityNotFoundException("World: " + id + " not found"));
-    }
-
-    private WorldResponse toResponse(World world) {
-        Long rootEntryId = loreEntryRepository.findByWorldIdAndParentIdIsNull(world.getId())
-                .stream()
-                .findFirst()
-                .map(LoreEntry::getId)
-                .orElse(null);
-
-        return new WorldResponse(world.getId(), world.getName(), rootEntryId);
+                .orElseThrow(() -> new EntityNotFoundException("World not found: " + id));
     }
 }

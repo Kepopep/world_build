@@ -1,47 +1,44 @@
 package com.hisder.worldBuilding.common;
 
+import com.hisder.worldBuilding.ai.AiGenerationException;
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityNotFoundException;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.Map;
+
+/**
+ * Translates service-layer exceptions into the JSON error shape the frontend
+ * expects: {@code {"message": "..."}}. Services throw plain
+ * exceptions; controllers don't catch anything themselves.
+ */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
     @ExceptionHandler(EntityNotFoundException.class)
-    public ResponseEntity<String> handleEntityNotFoundException(EntityNotFoundException e) {
-        return ResponseEntity
-                .status(HttpStatus.NOT_FOUND)
-                .body(e.getMessage());
-    }
-
-    @ExceptionHandler(EntityExistsException.class)
-    public ResponseEntity<String> handleEntityNotFoundException(EntityExistsException e) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(e.getMessage());
-    }
-
-    @ExceptionHandler(DuplicateKeyException.class)
-    public ResponseEntity<String> handleDuplicateKeyException(DuplicateKeyException e) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(e.getMessage());
-    }
-
-    @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<String> handleIllegalStateException(IllegalStateException e) {
-        return ResponseEntity
-                .status(HttpStatus.CONFLICT)
-                .body(e.getMessage());
+    public ResponseEntity<Map<String, String>> handleNotFound(EntityNotFoundException ex) {
+        return body(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<String> handleIllegalArgumentException(IllegalArgumentException e) {
-        return ResponseEntity
-                .status(HttpStatus.BAD_REQUEST)
-                .body(e.getMessage());
+    public ResponseEntity<Map<String, String>> handleBadRequest(IllegalArgumentException ex) {
+        return body(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    @ExceptionHandler({EntityExistsException.class, IllegalStateException.class})
+    public ResponseEntity<Map<String, String>> handleConflict(RuntimeException ex) {
+        return body(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(AiGenerationException.class)
+    public ResponseEntity<Map<String, String>> handleAiGenerationFailure(AiGenerationException ex) {
+        return body(HttpStatus.BAD_GATEWAY, ex.getMessage());
+    }
+
+    private ResponseEntity<Map<String, String>> body(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(Map.of("message", message));
     }
 }

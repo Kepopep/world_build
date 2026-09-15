@@ -1,24 +1,49 @@
 package com.hisder.worldBuilding.relation.definition;
 
-import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
+import com.hisder.worldBuilding.world.World;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
-@Data
+/**
+ * A named relation type scoped to a {@link World}, e.g. name="rules",
+ * reverseName="ruled by" -- {@code name} is shown traversing the edge from
+ * the source entry, {@code reverseName} from the target entry, so relation
+ * labels read naturally in either direction.
+ */
 @Entity
+@Table(name = "relation_definitions")
+@Getter
+@Setter
 @NoArgsConstructor
-@AllArgsConstructor
-@Table(name = "relation_definition")
 public class RelationDefinition {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 100)
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "world_id", nullable = false)
+    private World world;
+
+    @Column(nullable = false)
     private String name;
 
-    @Column(nullable = false, unique = true, length = 100)
+    @Column(name = "reverse_name", nullable = false)
     private String reverseName;
+
+    public RelationDefinition(World world, String name, String reverseName) {
+        this.world = world;
+        this.name = name;
+        this.reverseName = reverseName;
+    }
 }

@@ -1,0 +1,250 @@
+/* Folder/entry tree (js/sidebar.js) and breadcrumb (rendered directly by
+   js/app.js -- simple enough not to warrant its own module). Layered on top
+   of base.css, which still owns #entry-tree's reset and the
+   .entry-list-item/.entry-title-btn styling that tree entry rows reuse
+   directly (sidebar.js gives each entry <li> both "tree-entry" and
+   "entry-list-item" classes). An entry row's delete/move-to-root buttons are
+   .tree-action-btn, styled below alongside the folder row's own. */
+
+.sidebar-header {
+  /* Three buttons ("+ Folder", "+ New entry", "Generate with AI") no longer
+     reliably fit one row in a 260px-wide sidebar alongside the "Entries"
+     heading -- wrap rather than overflow/squeeze. */
+  flex-wrap: wrap;
+}
+
+.sidebar-header button {
+  /* base.css's generic button padding is too roomy for a 260px-wide
+     sidebar header -- every header button gets a tighter footprint here. */
+  padding: 0.35rem 0.55rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* Inline reveal form for "Generate with AI" (js/app.js's
+   onOpenAiGenerateForm), same "button reveals a small form" pattern as
+   tags.css's .tag-add-form. */
+#ai-generate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+}
+
+/* Without this, [hidden]'s built-in "display: none" (a UA-stylesheet rule)
+   loses to the same-specificity "display: flex" above -- author styles beat
+   UA styles at equal specificity regardless of source order, so the form
+   would render on page load despite the hidden attribute in index.html.
+   Same convention as .backlink-section-body[hidden] (css/backlinks.css),
+   #right-panel[hidden] (css/rail.css), .modal-overlay[hidden]
+   (css/graph.css), and #search-results[hidden] (css/search.css). */
+#ai-generate-form[hidden] {
+  display: none;
+}
+
+#ai-generate-prompt {
+  resize: vertical;
+  min-height: 3.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+#ai-generate-model {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
+#ai-generate-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+#ai-generate-status {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+/* Always-present drag target for "move to root" (js/sidebar.js's
+   renderRootDropTarget) -- dashed border marks it as a drop zone rather
+   than a real tree item; not draggable itself, just a target. */
+.tree-root-zone {
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.4rem;
+  margin-bottom: 0.5rem;
+  border: 1px dashed var(--color-border);
+  border-radius: 4px;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.tree-root-zone.drag-over {
+  background: rgba(108, 124, 240, 0.25);
+  border-color: var(--color-accent);
+  border-style: solid;
+  color: var(--color-text);
+}
+
+.tree-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 4px;
+  padding: 0.2rem 0.25rem;
+  cursor: grab;
+}
+
+.tree-folder-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Drag-and-drop feedback (js/sidebar.js). drag-over wins over the plain
+   :hover background above since it's a class selector applied on top of it
+   in source order with equal specificity -- same rule, later wins. */
+.tree-folder-row.drag-over {
+  background: rgba(108, 124, 240, 0.25);
+  outline: 1px dashed var(--color-accent);
+  outline-offset: -1px;
+}
+
+.tree-toggle {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(90deg);
+  transition: transform 0.1s ease;
+  /* Own cursor rather than inheriting the row's grab cursor -- it's a
+     click target (expand/collapse), not part of the draggable row area. */
+  cursor: pointer;
+}
+
+.tree-toggle.collapsed {
+  transform: rotate(0deg);
+}
+
+.tree-toggle::before {
+  content: "▸";
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.tree-folder-name {
+  flex: 1;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+  cursor: pointer;
+  /* Deliberately no overflow:hidden/text-overflow:ellipsis here -- long
+     names/deep nesting are meant to make the row overflow #entry-sidebar's
+     width and be reachable via its horizontal scrollbar, not get truncated
+     (see #entry-sidebar's overflow-x below). */
+  white-space: nowrap;
+}
+
+/* Small action buttons on a folder row (new subfolder / new entry / delete)
+   -- same minimalist-icon-button spirit as editor.css's .icon-btn (compact,
+   no label), sized down further since these sit inline in a narrow sidebar
+   row rather than a toolbar. width:auto + min-width (rather than a fixed
+   width) since the subfolder button's "+📁" is wider than the plain "+"/"×"
+   glyphs on the other two. */
+.tree-action-btn {
+  width: auto;
+  min-width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+/* Hidden until the row is hovered/focused, so the tree isn't cluttered with
+   several icons per row at rest -- same "reveal controls on demand" idea as
+   tags.js's edit-mode-only controls, just triggered by hover instead. Covers
+   both contexts .tree-action-btn appears in: a folder's own row, and an
+   entry row (its "move to root" button reuses this class -- see
+   renderEntryNode). */
+.tree-folder-row:hover .tree-action-btn,
+.entry-list-item:hover .tree-action-btn,
+.tree-action-btn:focus-visible {
+  opacity: 1;
+}
+
+.tree-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+}
+
+.tree-action-btn.danger:hover {
+  background: rgba(224, 103, 103, 0.15);
+  color: var(--color-danger);
+}
+
+.tree-children {
+  list-style: none;
+  margin: 0;
+  padding-left: 1.1rem;
+  border-left: 1px solid var(--color-border);
+  margin-left: 8px;
+}
+
+.tree-entry {
+  margin-bottom: 0.1rem;
+  cursor: grab;
+  white-space: nowrap;
+}
+
+/* .tree-folder.dragging dims the whole subtree (row + nested children) --
+   you're picking up the folder and everything in it, not just its row. */
+.tree-entry.dragging,
+.tree-folder.dragging {
+  opacity: 0.5;
+}
+
+/* Breadcrumb: Worlds > {World} > {Folder path...} > {Entry}. First element
+   inside #editor, above the icon toolbar. */
+#breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--color-muted);
+}
+
+.breadcrumb-part.current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.breadcrumb-separator {
+  color: var(--color-muted);
+}

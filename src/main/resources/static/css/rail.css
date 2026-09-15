@@ -1,0 +1,101 @@
+/* Far-left view-switcher rail and far-right panel-toggle rail (CLAUDE.md's
+   UI breakdown), plus the shared shell for the right rail's panel host
+   (#right-panel -- the panels' own contents are styled in outline.css/
+   backlinks.css/graph.css, this file only owns the rail chrome and the
+   panel host's box/visibility). Layered on top of css/base.css, same as
+   every other feature stylesheet -- no new custom properties, reuses the
+   existing --color-* tokens (so light/dark theming, see base.css's
+   [data-theme="light"] block, applies here for free). */
+
+#left-rail,
+#right-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  width: 44px;
+  flex-shrink: 0;
+  padding: 0.6rem 0;
+  background: var(--color-bg-alt);
+}
+
+#left-rail {
+  border-right: 1px solid var(--color-border);
+}
+
+#right-rail {
+  border-left: 1px solid var(--color-border);
+}
+
+.rail-spacer {
+  flex: 1;
+}
+
+.rail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-muted);
+}
+
+.rail-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.rail-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+
+/* The active view-switcher mode (left rail only -- "notes" is the only real
+   one today, see js/app.js's rail wiring) and a toggled-open right-rail
+   panel share the same pressed look. */
+.rail-btn.active,
+.rail-btn[aria-pressed="true"] {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* Settings (bottom of the left rail) and the right-rail toggles before an
+   entry is open render visibly-present-but-disabled rather than being
+   omitted outright, reusing base.css's generic button:disabled opacity. */
+.rail-btn:disabled {
+  cursor: not-allowed;
+}
+
+/* Panel host for the right rail's three toggleable panels (outline/
+   backlinks/entry-graph) -- only one panel is ever un-hidden inside here at
+   a time (js/app.js's right-rail wiring), and the host itself is hidden
+   entirely when none is open. Same width/border/scroll treatment as
+   #entry-sidebar (css/base.css) for visual symmetry, mirrored on the
+   opposite edge. */
+#right-panel {
+  width: 280px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--color-border);
+  padding: 1rem;
+  overflow-y: auto;
+  background: var(--color-bg-alt);
+}
+
+#right-panel[hidden] {
+  display: none;
+}
+
+.side-panel-title {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  color: var(--color-text);
+}
+
+.side-panel-empty {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
