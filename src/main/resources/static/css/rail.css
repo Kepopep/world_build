@@ -63,11 +63,9 @@
   color: #fff;
 }
 
-/* Library/database (left rail) render as visibly-present-but-disabled --
-   chrome that matches the design reference even though nothing is behind
-   them yet -- rather than being omitted outright. Settings (bottom of the
-   left rail) and the right-rail toggles before an entry is open follow the
-   same disabled look, reusing base.css's generic button:disabled opacity. */
+/* Settings (bottom of the left rail) and the right-rail toggles before an
+   entry is open render visibly-present-but-disabled rather than being
+   omitted outright, reusing base.css's generic button:disabled opacity. */
 .rail-btn:disabled {
   cursor: not-allowed;
 }

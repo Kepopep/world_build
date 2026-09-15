@@ -6,14 +6,75 @@
    "entry-list-item" classes). An entry row's delete/move-to-root buttons are
    .tree-action-btn, styled below alongside the folder row's own. */
 
+.sidebar-header {
+  /* Three buttons ("+ Folder", "+ New entry", "Generate with AI") no longer
+     reliably fit one row in a 260px-wide sidebar alongside the "Entries"
+     heading -- wrap rather than overflow/squeeze. */
+  flex-wrap: wrap;
+}
+
 .sidebar-header button {
-  /* The header now holds two buttons ("+ Folder", "+ New entry") alongside
-     the "Entries" heading in a 260px-wide sidebar -- base.css's generic
-     button padding is too roomy for that, so both get a tighter footprint
-     here. */
+  /* base.css's generic button padding is too roomy for a 260px-wide
+     sidebar header -- every header button gets a tighter footprint here. */
   padding: 0.35rem 0.55rem;
   font-size: 0.85rem;
   white-space: nowrap;
+}
+
+/* Inline reveal form for "Generate with AI" (js/app.js's
+   onOpenAiGenerateForm), same "button reveals a small form" pattern as
+   tags.css's .tag-add-form. */
+#ai-generate-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+}
+
+/* Without this, [hidden]'s built-in "display: none" (a UA-stylesheet rule)
+   loses to the same-specificity "display: flex" above -- author styles beat
+   UA styles at equal specificity regardless of source order, so the form
+   would render on page load despite the hidden attribute in index.html.
+   Same convention as .backlink-section-body[hidden] (css/backlinks.css),
+   #right-panel[hidden] (css/rail.css), .modal-overlay[hidden]
+   (css/graph.css), and #search-results[hidden] (css/search.css). */
+#ai-generate-form[hidden] {
+  display: none;
+}
+
+#ai-generate-prompt {
+  resize: vertical;
+  min-height: 3.5rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+#ai-generate-model {
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 0.85rem;
+}
+
+#ai-generate-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+#ai-generate-status {
+  font-size: 0.8rem;
+  color: var(--color-muted);
 }
 
 /* Always-present drag target for "move to root" (js/sidebar.js's

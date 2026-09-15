@@ -20,6 +20,11 @@ const state = {
   // sidebar.js's collapsedFolderIds: only one panel is ever visible at a
   // time (see togglePanel()).
   rightPanel: null,
+  // "Generate with AI" model picker -- fetched lazily the first time the
+  // form is opened (models aren't world-scoped, so this only needs to
+  // happen once per page load) rather than eagerly at startup.
+  aiModels: [],
+  aiModelsLoaded: false,
 };
 
 const els = {};
@@ -31,6 +36,14 @@ document.addEventListener("DOMContentLoaded", () => {
   els.entryTree = document.getElementById("entry-tree");
   els.newFolderBtn = document.getElementById("new-folder-btn");
   els.newEntryBtn = document.getElementById("new-entry-btn");
+  els.generateAiBtn = document.getElementById("generate-ai-btn");
+  els.aiGenerateForm = document.getElementById("ai-generate-form");
+  els.aiGeneratePrompt = document.getElementById("ai-generate-prompt");
+  els.aiGenerateModel = document.getElementById("ai-generate-model");
+  els.aiGenerateModelSearch = document.getElementById("ai-generate-model-search");
+  els.aiGenerateSubmitBtn = document.getElementById("ai-generate-submit-btn");
+  els.aiGenerateCancelBtn = document.getElementById("ai-generate-cancel-btn");
+  els.aiGenerateStatus = document.getElementById("ai-generate-status");
   els.editor = document.getElementById("editor");
   els.editorEmpty = document.getElementById("editor-empty");
   els.breadcrumb = document.getElementById("breadcrumb");
@@ -65,8 +78,8 @@ document.addEventListener("DOMContentLoaded", () => {
   els.searchInput = document.getElementById("search-input");
   els.searchResults = document.getElementById("search-results");
 
-  // Far-left view-switcher rail (only "notes" and "graph" do anything today
-  // -- library/database are chrome-only placeholders, per CLAUDE.md).
+  // Far-left view-switcher rail -- "notes" and "graph" are the only two
+  // modes that exist; there is no library/database view.
   els.railGraphBtn = document.getElementById("rail-graph-btn");
 
   // Far-right panel-toggle rail + the panel host.
@@ -87,6 +100,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // optional folderId, and addEventListener would otherwise hand it the
   // click MouseEvent as that argument.
   els.newEntryBtn.addEventListener("click", () => onCreateEntry());
+  els.generateAiBtn.addEventListener("click", onOpenAiGenerateForm);
+  els.aiGenerateCancelBtn.addEventListener("click", onCancelAiGenerate);
+  els.aiGenerateModelSearch.addEventListener("input", () => renderAiModelOptions(els.aiGenerateModelSearch.value));
+  els.aiGenerateSubmitBtn.addEventListener("click", onGenerateEntry);
   els.editToggleBtn.addEventListener("click", onToggleEditing);
   els.saveBtn.addEventListener("click", onSaveEntry);
   els.deleteBtn.addEventListener("click", () => onDeleteEntry(state.openEntryId));
@@ -197,6 +214,7 @@ async function init() {
 function updateActionStates() {
   els.newFolderBtn.disabled = !state.selectedWorldId;
   els.newEntryBtn.disabled = !state.selectedWorldId;
+  els.generateAiBtn.disabled = !state.selectedWorldId;
   els.editToggleBtn.disabled = !state.openEntryId;
   // Saving only makes sense while editing -- fields are read-only otherwise,
   // so nothing could have changed.
@@ -387,6 +405,110 @@ async function onCreateFolder() {
     showStatus(`Folder "${name.trim()}" created.`);
   } catch (err) {
     showStatus(err.message, true);
+  }
+}
+
+// Reveals the inline "Generate with AI" form (same reveal-on-click pattern
+// as tags.js's "+ Add tag" control) and lazily fetches the model list the
+// first time it's opened -- models aren't world-scoped, so this only needs
+// to happen once per page load, not on every open.
+async function onOpenAiGenerateForm() {
+  if (!state.selectedWorldId) {
+    showStatus("Select or create a world first.", true);
+    return;
+  }
+  els.aiGenerateForm.hidden = false;
+  els.aiGeneratePrompt.focus();
+  if (!state.aiModelsLoaded) {
+    try {
+      state.aiModels = await window.api.listAiModels();
+      // Only latch aiModelsLoaded on success -- a transient/misconfigured
+      // failure shouldn't permanently wedge the picker at "no models" for
+      // the rest of the page session; the next open retries the fetch.
+      state.aiModelsLoaded = true;
+    } catch {
+      // An unreachable/misconfigured aggregator shouldn't block opening the
+      // form -- the model select just renders empty and generation itself
+      // will surface a clear error when actually submitted.
+      state.aiModels = [];
+    }
+  }
+  // Re-render unconditionally, not just on first load -- onCancelAiGenerate
+  // clears the search box, and a stale filtered <select> would otherwise
+  // persist across a cancel/reopen even though the search input looks empty.
+  renderAiModelOptions();
+}
+
+// The backend already returns models filtered to text-API support and
+// sorted alphabetically -- filterText here is a pure client-side substring
+// match over that list, no re-sort needed.
+function renderAiModelOptions(filterText = "") {
+  els.aiGenerateModel.innerHTML = "";
+  const query = filterText.trim().toLowerCase();
+  const models = query
+    ? state.aiModels.filter((model) => model.name.toLowerCase().includes(query))
+    : state.aiModels;
+  if (models.length === 0) {
+    const opt = document.createElement("option");
+    // Explicit empty value -- an <option> with no value attribute defaults
+    // its .value to its text content, which would otherwise get sent as the
+    // "model" field below instead of null.
+    opt.value = "";
+    opt.textContent = state.aiModels.length === 0 ? "No models configured" : "No matching models";
+    opt.disabled = true;
+    opt.selected = true;
+    els.aiGenerateModel.appendChild(opt);
+    return;
+  }
+  for (const model of models) {
+    const opt = document.createElement("option");
+    opt.value = model.id;
+    opt.textContent = model.name;
+    els.aiGenerateModel.appendChild(opt);
+  }
+}
+
+function onCancelAiGenerate() {
+  els.aiGenerateForm.hidden = true;
+  els.aiGeneratePrompt.value = "";
+  els.aiGenerateModelSearch.value = "";
+  els.aiGenerateStatus.textContent = "";
+}
+
+// Submits the prompt to POST .../entries/generate, a blocking multi-second
+// LLM call -- disables the submit button and shows a status message for the
+// duration. On success, lands in edit mode on the new entry (same "ready to
+// type immediately" treatment onCreateEntry gives every freshly created
+// entry) so the draft can be reviewed/adjusted before it's really saved. On
+// failure the form stays open with the prompt intact and the error shown
+// inline, rather than losing the prompt text.
+async function onGenerateEntry() {
+  if (!state.selectedWorldId) {
+    showStatus("Select or create a world first.", true);
+    return;
+  }
+  const prompt = els.aiGeneratePrompt.value.trim();
+  if (!prompt) {
+    els.aiGenerateStatus.textContent = "Describe what to generate first.";
+    return;
+  }
+  els.aiGenerateSubmitBtn.disabled = true;
+  els.aiGenerateStatus.textContent = "Generating...";
+  try {
+    const entry = await window.api.generateEntry(state.selectedWorldId, {
+      prompt,
+      model: els.aiGenerateModel.value || null,
+      folderId: null,
+    });
+    state.entries.push(entry);
+    renderSidebar();
+    onCancelAiGenerate();
+    await openEntry(entry.id, { startEditing: true });
+    showStatus(`Generated "${entry.title}".`);
+  } catch (err) {
+    els.aiGenerateStatus.textContent = err.message;
+  } finally {
+    els.aiGenerateSubmitBtn.disabled = false;
   }
 }
 
