@@ -1,0 +1,46 @@
+/* Shared hover-preview popup (js/link-preview.js) -- shown when hovering a
+   link to an entry that already exists, wherever one appears: resolved
+   [[wikilink]] spans in the rendered view-mode preview (editor.css's
+   .wikilink-resolved) and Active items in the right-rail Links panel
+   (css/backlinks.css's .backlink-item-active). Same position:fixed +
+   box-shadow card language as editor.css's #wikilink-autocomplete. */
+
+#link-preview-popup {
+  position: fixed;
+  z-index: 30;
+  max-width: 280px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 0.6rem 0.75rem;
+  pointer-events: none;
+}
+
+#link-preview-popup[hidden] {
+  display: none;
+}
+
+.link-preview-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 0.2rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.link-preview-summary {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: var(--color-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.link-preview-empty {
+  font-style: italic;
+}

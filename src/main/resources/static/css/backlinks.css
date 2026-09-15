@@ -1,26 +1,233 @@
-/* Right-rail backlinks panel (js/backlinks.js) -- entries whose content
-   resolves a [[wikilink]] back to the one currently open ("Linked from").
-   Lives inside #right-panel (css/rail.css owns that shell). */
+/* Right-rail "Links" panel (js/backlinks.js) -- two collapsible sections,
+   "Linked to" (outgoing) above "Linked from" (incoming). Lives inside
+   #right-panel (css/rail.css owns that shell, including the outer
+   overflow-y: auto fallback for the panel as a whole). Each .backlink-list
+   (there can be more than one per section -- "Linked to" splits into
+   Active/Inactive subgroups) is separately height-capped + scrollable
+   (max-height + overflow-y: auto) so a long list can't push the rest of the
+   panel out of view entirely -- everything stays reachable at once. */
 
 #backlinks-panel-body {
   display: flex;
   flex-direction: column;
+  gap: 0.9rem;
+}
+
+.backlink-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* A hairline divider between the two top-level sections, rather than
+   relying on gap alone, so "Linked to" and "Linked from" read as visually
+   distinct groups even when both are expanded and full of items. */
+.backlink-section + .backlink-section {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Collapse/expand trigger for a top-level section (Linked to / Linked
+   from) -- same chevron-rotation convention as sidebar.css's .tree-toggle,
+   just laid out as a full-width row instead of a small inline icon. */
+.backlink-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.3rem 0.35rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.backlink-section-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.backlink-section-toggle {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  transform: rotate(90deg);
+  transition: transform 0.12s ease;
+}
+
+.backlink-section-toggle.collapsed {
+  transform: rotate(0deg);
+}
+
+.backlink-section-toggle::before {
+  content: "▸";
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.backlink-section-title {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Pill-shaped item count, right-aligned in the section header -- gives the
+   count its own visual weight instead of trailing the label as plain
+   "(n)" text. */
+.backlink-count-badge {
+  flex-shrink: 0;
+  min-width: 1.4em;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.backlink-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: 0.3rem;
+  padding-left: 1.1rem;
+}
+
+/* Without this, [hidden]'s built-in "display: none" (a UA-stylesheet rule)
+   loses to the same-specificity "display: flex" above -- author styles beat
+   UA styles at equal specificity regardless of source order, so
+   body.hidden = true (js/backlinks.js's collapse toggle) would otherwise
+   have no visual effect. Same convention as #right-panel[hidden]
+   (css/rail.css), .modal-overlay[hidden] (css/graph.css), and
+   #search-results[hidden] (css/search.css). */
+.backlink-section-body[hidden] {
+  display: none;
+}
+
+.backlink-subgroup {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.backlink-subgroup-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-muted);
+}
+
+/* Small color-coded dot ahead of "Active"/"Inactive", echoing the same
+   accent/warn colors the items themselves use below -- a quick-scan cue
+   for which subgroup is which without reading the label. */
+.backlink-subgroup-title::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  min-width: 6px;
+  border-radius: 50%;
+}
+
+.backlink-subgroup-title-active::before {
+  background: var(--color-accent);
+}
+
+.backlink-subgroup-title-inactive::before {
+  background: var(--color-warn, #d98c46);
+}
+
+.backlink-list {
+  display: flex;
+  flex-direction: column;
   gap: 0.15rem;
+  max-height: 22vh;
+  overflow-y: auto;
 }
 
 .backlink-item {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
   text-align: left;
-  padding: 0.4rem 0.5rem;
+  padding: 0.4rem 0.55rem;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: none;
-  color: var(--color-text);
   font-size: 0.88rem;
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.backlink-item:hover {
+/* Resolved -- an entry with this title exists, clicking navigates to it.
+   Same accent color as editor.css's .wikilink-resolved, so "this points at
+   a real entry" reads identically here and in the main content block. */
+.backlink-item-active {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.backlink-item-active:hover {
   background: rgba(255, 255, 255, 0.06);
+  color: var(--color-accent-hover);
+}
+
+/* Unresolved -- no entry with this title exists yet. Same warn color +
+   dotted underline as editor.css's .wikilink-unresolved, and clickable for
+   the same reason: clicking creates a stub entry, exactly like
+   double-clicking an unresolved [[reference]] in the main text
+   (editor.js's createStubEntry). */
+.backlink-item-inactive {
+  color: var(--color-warn, #d98c46);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.backlink-item-inactive:hover {
+  background: rgba(217, 140, 70, 0.12);
+}
+
+/* A trailing "+ create" hint, revealed on hover, so the click-to-create
+   affordance is discoverable rather than only implied by the color/cursor. */
+.backlink-item-inactive::after {
+  content: "+ create";
+  margin-left: auto;
+  padding-left: 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.backlink-item-inactive:hover::after {
+  opacity: 0.85;
+}
+
+.backlink-item-inactive.creating {
+  opacity: 0.6;
+  cursor: default;
+  text-decoration: none;
+}
+
+.backlink-item-inactive.creating::after {
+  content: "creating…";
+  opacity: 0.85;
+}
+
+.backlink-item:disabled {
+  cursor: default;
 }

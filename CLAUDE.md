@@ -327,8 +327,13 @@ css/
   rail.css               ✅ built (not in the original sketch): far-left and right icon rail
                        strip layout/active-state styling, shared between both rails.
   outline.css            ✅ built (not in the original sketch): outline panel TOC styling.
-  backlinks.css          ✅ built (not in the original sketch): "Linked from" panel list styling.
+  backlinks.css          ✅ built (not in the original sketch): the "Links" panel's collapsible
+                       "Linked to"/"Linked from" sections, Active/Inactive subgroup styling. See
+                       "Right panel" below.
   search.css             ✅ built (not in the original sketch): top-bar search dropdown styling.
+  link-preview.css       ✅ built (not in the original sketch): the shared hover-preview popup
+                       card (js/link-preview.js) shown over a resolved [[wikilink]] or an Active
+                       backlinks item. See "Wikilink references & edit mode" below.
   components.css        not built — no world-switcher dropdown exists yet to style; tag pills,
                        breadcrumb, and the other small components built so far live in their
                        own feature-specific CSS files instead
@@ -363,9 +368,11 @@ js/
   outline.js             ✅ built (not in the original sketch, which called this out as separate
                        from entry-view.js): parses #{1,6} headings client-side from
                        contentMarkdown, click-to-jump in both edit and view mode.
-  backlinks.js           ✅ built (not in the original sketch): wikilink-derived "Linked from"
-                       panel. See "Relations & graph" below for why it's wikilink-derived rather
-                       than Relation-based for now.
+  backlinks.js           ✅ built (not in the original sketch): the wikilink-derived, collapsible
+                       "Linked to"/"Linked from" "Links" panel (Active/Inactive split, click-to-
+                       create-stub on Inactive items). See "Relations & graph" below for why it's
+                       wikilink-derived rather than Relation-based for now, and "Right panel" below
+                       for the panel's own behavior.
   tags.js                ✅ built: pill rendering, add-tag form (with a <datalist> of the
                        world's existing tag names), remove button, color-swatch dot that opens a
                        native <input type="color">. See "Tags" below.
@@ -380,6 +387,11 @@ js/
   theme.js                 ✅ built (not in the original sketch): toggles
                        document.documentElement.dataset.theme between "light"/"dark",
                        persists to localStorage, defaults dark.
+  link-preview.js         ✅ built (not in the original sketch): the shared hover-preview popup
+                       (title + one-line summary) wired onto every resolved link to an existing
+                       entry -- editor.js's rendered [[wikilink]] spans and backlinks.js's Active
+                       items both call into this rather than duplicating popup logic. See
+                       "Wikilink references & edit mode" below.
 assets/icons/          not built — the toolbar's pencil/save/trash icons are inline <svg> in
                        index.html rather than separate files; revisit this if icon reuse grows
 ```
@@ -565,6 +577,20 @@ are easy to accidentally regress.
   `js/editor.js` hit-tests the mouse position against the overlay tokens'
   real `getClientRects()` on every `mousemove` and sets
   `textareaEl.style.cursor` directly.
+- **Hover preview popup:** hovering a *resolved* `[[...]]` span in the
+  rendered view-mode preview (real DOM, unlike the pointer-events:none
+  overlay above, so this one's a plain `mouseenter`/`mouseleave` pair, no
+  hit-testing needed) shows a small card with the target entry's title and
+  one-line `summary` after a short delay, via the shared
+  `js/link-preview.js`/`css/link-preview.css` module — shared because the
+  right panel's Backlinks "Links" panel (see "Right panel" below) uses the
+  exact same popup for its Active items. Deliberately gated to *resolved*
+  links only at the call site (an unresolved span, and an Inactive backlinks
+  item, are simply never passed to `linkPreview.attach()` in the first
+  place) rather than the popup module re-deriving resolution itself.
+  `editor.js` keeps a small `Map<entryId, Entry>` (`entryById`, built
+  alongside `titleIndex`) purely to back this, since a resolved span's DOM
+  only carries the target's id.
 - **`[[`-triggered autocomplete:** typing `[[partial` opens a debounced
   (~150ms, `AbortController`-cancelled on a newer keystroke) popup of
   matching entry titles from `GET /api/worlds/{worldId}/entries/search`; Tab
@@ -922,27 +948,75 @@ for exact contracts.
 ## Right panel (implemented)
 
 Mirrors the left rail (`css/rail.css`), toggling three panels — only one
-open at a time. All three are read-only/display-only; none has its own
-creation UI (headings come from the editor, wikilinks from existing
-content, relations aren't creatable from the UI at all yet — see above).
+open at a time. All three are read-only/display-only for *navigation*
+purposes (no rename/delete/reorder UI here); the one exception is the
+Backlinks panel's "Linked to → Inactive" subgroup below, which can create a
+stub `Entry`, same as the editor's own double-click-to-create-stub — headings
+still come from the editor, "Linked from" only ever reflects entries that
+already exist, and relations aren't creatable from the UI at all yet (see
+above).
 
 - **Outline** (`js/outline.js`, `css/outline.css`): `#{1,6}` headings parsed
   client-side from the open entry's `contentMarkdown`, rendered as an
   indented, clickable TOC. Clicking jumps the textarea caret to that
   heading's line in edit mode, or scrolls the matching rendered-preview
   heading into view in view mode.
-- **Backlinks** (`js/backlinks.js`, `css/backlinks.css`): a "Linked from"
-  list of every *other* entry whose `contentMarkdown` resolves a
-  `[[This Entry's Title]]` reference (via `js/wikilink-parser.js` +
-  `state.entries`, same resolution convention the editor's own wikilink
-  highlighting uses) — **wikilink-derived, not `Relation`-based**, a
-  deliberate choice made because wikilinks are what users actually create
-  today and formal relations have no creation UI yet (would otherwise show
-  empty for a long time). Verified against two cross-linked entries during
-  manual testing. A second "Related via ..." section sourced from formal
-  `Relation`s is the natural next step once relation-creation UI exists —
-  intentionally left as a separate future section rather than merged into
-  this one, since the two have different semantics.
+- **Backlinks** (`js/backlinks.js`, `css/backlinks.css`, panel titled
+  "Links"): two **collapsible** (chevron-toggle header, same rotate-on-
+  toggle convention as sidebar.css's `.tree-toggle`, expanded by default,
+  collapse state kept in a module-scope `collapsedSections` map so it
+  survives switching entries) wikilink-derived sections, **"Linked to"
+  shown above "Linked from"**:
+  - **"Linked to"** — every distinct title the *open* entry's own
+    `[[wikilink]]`s reference (outgoing), split into an **Active**
+    subgroup (an entry with that title exists — same accent color as
+    `editor.css`'s `.wikilink-resolved`, clickable, navigates) and an
+    **Inactive** subgroup (no entry with that title exists yet — same
+    warn-colored dotted underline as `.wikilink-unresolved`, and
+    *clickable*: clicking creates a stub `Entry` with that exact title
+    (`POST /api/worlds/{worldId}/entries`, empty content) via the same
+    underlying call editor.js's double-click-to-create-stub makes, then
+    hands the new entry to `config.onEntriesChanged` — app.js wires this to
+    `onLinkedToStubCreated`, which **navigates straight into the new entry
+    in edit mode** (`openEntry(id, { startEditing: true })`, the same
+    "ready to type immediately" treatment `onCreateEntry` gives every other
+    freshly-created entry). This is deliberately *different* from
+    editor.js's own `onStubEntryCreated`, which flips the double-clicked
+    span to resolved in place and stays put — that one is guarding an
+    in-progress edit on the *current* entry, which doesn't apply here since
+    the backlinks panel itself is otherwise display-only. A trailing
+    "+ create" hint fades in on hover so the affordance is discoverable, and
+    the item disables itself (`.creating`) for the duration of the request
+    to guard against a double-click firing two creates).
+  - **"Linked from"** — every *other* entry whose `contentMarkdown`
+    resolves a `[[This Entry's Title]]` reference back (incoming); not
+    split into Active/Inactive since a Linked-from entry has to exist to
+    have content in the first place, and rendered with the same Active
+    accent-colored styling as "Linked to"'s Active subgroup.
+
+  Every Active item (in either section) also carries the same
+  `js/link-preview.js` hover-preview popup the main content's resolved
+  `[[wikilink]]`s use — see "Wikilink references & edit mode" above — since
+  it's the same "link to an entry that already exists" case either way.
+
+  Both via `js/wikilink-parser.js` + `state.entries`, same resolution
+  convention the editor's own wikilink highlighting uses —
+  **wikilink-derived, not `Relation`-based**, a deliberate choice made
+  because wikilinks are what users actually create today and formal
+  relations have no creation UI yet (would otherwise show empty for a long
+  time). Each top-level section header shows a pill-shaped count badge, and
+  a small accent/warn-colored dot ahead of each "Active"/"Inactive" subgroup
+  label echoes the same color-coding as the items themselves, for
+  quick-scan legibility. Every individual list (Linked from, and each of
+  Linked to's two subgroups) is independently height-capped
+  (`max-height: 22vh`) with its own `overflow-y: auto`, so a long list can't
+  push the rest of the panel out of view — on top of `#right-panel`'s
+  pre-existing panel-wide scroll fallback (`css/rail.css`). Verified against
+  two cross-linked entries
+  during manual testing. A third "Related via ..." section sourced from
+  formal `Relation`s is the natural next step once relation-creation UI
+  exists — intentionally left as a separate future section rather than
+  merged into these, since it has different semantics.
 - **Entry relation graph**: see "Relations & graph" above.
 
 ## Build & run

@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="css/outline.css">
   <link rel="stylesheet" href="css/backlinks.css">
   <link rel="stylesheet" href="css/search.css">
+  <link rel="stylesheet" href="css/link-preview.css">
 </head>
 <body>
   <header id="top-bar">
@@ -297,7 +298,7 @@
         <div id="outline-panel-body"></div>
       </div>
       <div id="backlinks-panel" class="side-panel" hidden>
-        <h3 class="side-panel-title">Linked from</h3>
+        <h3 class="side-panel-title">Links</h3>
         <div id="backlinks-panel-body"></div>
       </div>
       <div id="entry-graph-panel" class="side-panel" hidden>
@@ -311,7 +312,18 @@
     <div class="modal-panel">
       <div class="modal-header">
         <h2 id="graph-modal-title"></h2>
-        <button id="graph-modal-close" type="button" class="icon-btn" aria-label="Close">×</button>
+        <div class="modal-header-actions">
+          <button id="graph-recenter-btn" type="button" class="icon-btn" title="Recenter view" aria-label="Recenter view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="3"></circle>
+              <line x1="12" y1="2" x2="12" y2="6"></line>
+              <line x1="12" y1="18" x2="12" y2="22"></line>
+              <line x1="2" y1="12" x2="6" y2="12"></line>
+              <line x1="18" y1="12" x2="22" y2="12"></line>
+            </svg>
+          </button>
+          <button id="graph-modal-close" type="button" class="icon-btn" aria-label="Close">×</button>
+        </div>
       </div>
       <svg id="graph-canvas"></svg>
     </div>
@@ -319,6 +331,7 @@
 
   <script src="js/api.js"></script>
   <script src="js/wikilink-parser.js"></script>
+  <script src="js/link-preview.js"></script>
   <script src="js/editor.js"></script>
   <script src="js/tags.js"></script>
   <script src="js/sidebar.js"></script>

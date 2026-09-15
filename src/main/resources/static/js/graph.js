@@ -309,6 +309,158 @@
     return { start: start, reheat: reheat, stop: stop };
   }
 
+  // ---- Camera (pan/zoom) ---------------------------------------------------
+  //
+  // Deliberately does NOT touch the physics simulation's coordinate space at
+  // all -- node.x/node.y, simulationTick's width/height params, boundary
+  // clamping, and center-pull all stay exactly as they are today. Pan/zoom is
+  // implemented purely as a change to which slice of that SAME coordinate
+  // space the <svg>'s viewBox displays. That's what makes zoom grow/shrink
+  // nodes and edges "for free": circle r/cx/cy and line coordinates/
+  // stroke-width are plain unitless SVG user-space numbers (not CSS px), so
+  // showing a smaller/larger slice of the same coordinate space across the
+  // same fixed-pixel canvas naturally renders them bigger/smaller with no
+  // extra per-element JS scaling code needed -- adding that on top would
+  // double-apply the effect.
+
+  const MIN_ZOOM = 0.25;
+  const MAX_ZOOM = 4;
+  // Below this zoom, node labels fade out entirely, leaving only dots +
+  // connection lines (see updateViewBox's .graph-labels-hidden toggle and
+  // css/graph.css) -- picked by feel: 0.6 is zoomed out enough that most
+  // graphs' labels would already be crowding/overlapping each other anyway.
+  const LABEL_HIDE_ZOOM = 0.6;
+
+  // Applies `camera` ({zoom, panX, panY}) to the <svg>'s viewBox, against the
+  // renderer's base canvas size (the same width/height the force simulation
+  // itself uses -- see containerSize()/render()). Also flips the
+  // .graph-labels-hidden class per LABEL_HIDE_ZOOM -- a single class toggle
+  // here is far cheaper than touching every individual label's opacity on
+  // every wheel/pan tick.
+  function updateViewBox(svg, camera, width, height) {
+    const viewWidth = width / camera.zoom;
+    const viewHeight = height / camera.zoom;
+    svg.setAttribute("viewBox", `${camera.panX} ${camera.panY} ${viewWidth} ${viewHeight}`);
+    svg.classList.toggle("graph-labels-hidden", camera.zoom < LABEL_HIDE_ZOOM);
+  }
+
+  // Zooms `camera` in/out around one SVG-space point (svgX, svgY -- e.g. the
+  // cursor position under a wheel event, already converted via toSvgPoint)
+  // so that point stays visually fixed on screen, the standard "zoom to
+  // cursor" behavior. `deltaY` is a wheel event's raw deltaY; the exponential
+  // factor gives smooth behavior for both notchy mice and smooth trackpads
+  // (many small deltaY events compound multiplicatively, one big one jumps
+  // further, without needing separate code paths). Mutates `camera` in
+  // place; the caller is responsible for calling updateViewBox() afterward
+  // -- kept separate so callers can decide when the redraw happens.
+  function zoomAtPoint(camera, width, height, svgX, svgY, deltaY) {
+    const oldZoom = camera.zoom;
+    const factor = Math.pow(1.0015, -deltaY);
+    const newZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, oldZoom * factor));
+    if (newZoom === oldZoom) {
+      return;
+    }
+    const oldViewWidth = width / oldZoom;
+    const oldViewHeight = height / oldZoom;
+    const newViewWidth = width / newZoom;
+    const newViewHeight = height / newZoom;
+    // svgX sits at a fixed fractional offset into the OLD viewBox rect
+    // ((svgX - panX_old) / oldViewWidth) -- solving for the panX that puts
+    // svgX at that SAME fractional offset into the NEW (differently-sized)
+    // viewBox rect keeps it under the cursor across the zoom change.
+    camera.panX = svgX - (svgX - camera.panX) * (newViewWidth / oldViewWidth);
+    camera.panY = svgY - (svgY - camera.panY) * (newViewHeight / oldViewHeight);
+    camera.zoom = newZoom;
+  }
+
+  // Pans `camera` by a raw client-pixel delta (e.g. from consecutive
+  // pointermove events), converting it into SVG user-space units via the
+  // ratio of the current viewBox size to the svg element's actual rendered
+  // pixel size (`rectWidth`/`rectHeight`, i.e. getBoundingClientRect()) --
+  // needed because the canvas's CSS pixel size and its viewBox's user-space
+  // size are two independent numbers that only happen to match at zoom=1.
+  // Subtracting the (scaled) delta from panX/panY is what makes the content
+  // visually "follow" the cursor while dragging: moving the cursor right
+  // (positive clientDeltaX) should shift the visible viewBox window LEFT
+  // (decrease panX) so the same content point tracks rightward on screen --
+  // the usual "grab and drag the canvas" convention.
+  function panBy(camera, width, height, clientDeltaX, clientDeltaY, rectWidth, rectHeight) {
+    const viewWidth = width / camera.zoom;
+    const viewHeight = height / camera.zoom;
+    const scaleX = rectWidth > 0 ? viewWidth / rectWidth : 1;
+    const scaleY = rectHeight > 0 ? viewHeight / rectHeight : 1;
+    camera.panX -= clientDeltaX * scaleX;
+    camera.panY -= clientDeltaY * scaleY;
+  }
+
+  // Wires wheel-to-zoom and drag-empty-background-to-pan onto one renderer's
+  // <svg>. Called exactly once per <svg> DOM element (see render()'s
+  // svg.dataset.mythosPanZoomBound guard) -- render() can run many times
+  // against the same element (reopening the modal, switching entry <->
+  // world graph), and re-adding these listeners on every render would stack
+  // duplicate handlers that each fire once per event. `getSize()` is a
+  // closure back into createRenderer()'s live canvasWidth/canvasHeight
+  // rather than a snapshot, since those can change across re-renders even
+  // though the listeners themselves are only attached once.
+  //
+  // Pan starts on the svg's own pointerdown -- a node-circle drag never
+  // reaches this listener because attachDragHandlers' pointerdown calls
+  // stopPropagation() (see below), so any pointerdown that DOES bubble here
+  // is guaranteed to have started on empty canvas background.
+  function attachCameraControls(svg, camera, getSize) {
+    svg.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const { width, height } = getSize();
+        const p = toSvgPoint(svg, event.clientX, event.clientY);
+        zoomAtPoint(camera, width, height, p.x, p.y, event.deltaY);
+        updateViewBox(svg, camera, width, height);
+      },
+      { passive: false }
+    );
+
+    let panPointerId = null;
+    let lastClientX = 0;
+    let lastClientY = 0;
+
+    svg.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+      panPointerId = event.pointerId;
+      lastClientX = event.clientX;
+      lastClientY = event.clientY;
+      svg.setPointerCapture(panPointerId);
+      svg.classList.add("graph-panning");
+    });
+
+    svg.addEventListener("pointermove", (event) => {
+      if (panPointerId === null || event.pointerId !== panPointerId) {
+        return;
+      }
+      const { width, height } = getSize();
+      const rect = svg.getBoundingClientRect();
+      const dx = event.clientX - lastClientX;
+      const dy = event.clientY - lastClientY;
+      lastClientX = event.clientX;
+      lastClientY = event.clientY;
+      panBy(camera, width, height, dx, dy, rect.width, rect.height);
+      updateViewBox(svg, camera, width, height);
+    });
+
+    function endPan(event) {
+      if (panPointerId === null || event.pointerId !== panPointerId) {
+        return;
+      }
+      svg.releasePointerCapture(panPointerId);
+      panPointerId = null;
+      svg.classList.remove("graph-panning");
+    }
+    svg.addEventListener("pointerup", endPan);
+    svg.addEventListener("pointercancel", endPan);
+  }
+
   // ---- Rendering ------------------------------------------------------------
 
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -344,6 +496,21 @@
     return node.kind === "resolved" ? "1" : "0.5";
   }
 
+  // An edge's resting color mirrors its two endpoints' own node color, same
+  // rule as nodeFill() above: accent when both ends are resolved existing
+  // entries, or the unresolved/warn color when either end is a stub
+  // reference to a title with no matching Entry yet (on direct request:
+  // "links to nonexistent entities [get] the same color as the circles of
+  // those nonexistent entities"). Since a resolved-resolved edge is now
+  // accent-colored rather than the old flat neutral border color, this
+  // applies equally to relation edges (kind:'relation') -- those can only
+  // ever connect two resolved entries in the first place, so they always
+  // read as "accent", which is the intended "color of the existing entity"
+  // reading for that case too.
+  function edgeStrokeColor(a, b) {
+    return a.kind === "unresolved" || b.kind === "unresolved" ? UNRESOLVED_COLOR : "var(--color-accent)";
+  }
+
   // Edges and nodes are each created ONCE (drawEdgeInitial/drawNodeInitial)
   // and then repositioned in place every simulation tick
   // (positionEdge/positionNode) rather than torn down and recreated -- a
@@ -356,11 +523,20 @@
   // .graph-edge-wikilink class (css/graph.css).
   function drawEdgeInitial(svg, edge) {
     const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("stroke", "var(--color-border)");
+    const stroke = edge && edge._a && edge._b ? edgeStrokeColor(edge._a, edge._b) : "var(--color-border)";
+    line.setAttribute("stroke", stroke);
     line.setAttribute("stroke-width", "1.5");
     line.setAttribute("opacity", "0.6");
+    // Base class every edge line gets, regardless of kind -- lets the hover
+    // interaction's CSS (graph-edge-highlighted/graph-edge-dimmed, see
+    // createHoverController below) target a stable, always-present selector
+    // with a transition, the same reasoning as .graph-node-circle on nodes.
+    // .graph-edge-wikilink layers on top of it for the dashed variant only,
+    // via classList (not setAttribute("class", ...), which would clobber the
+    // base class instead of adding alongside it).
+    line.classList.add("graph-edge-line");
     if (!edge || edge.kind !== "relation") {
-      line.setAttribute("class", "graph-edge-wikilink");
+      line.classList.add("graph-edge-wikilink");
     }
     svg.appendChild(line);
 
@@ -394,6 +570,14 @@
   // dragging needs to reheat it.
   function drawNodeInitial(svg, node, config, nodeCircles, nodeLabels) {
     const circle = document.createElementNS(SVG_NS, "circle");
+    // Base class (previously nothing) so the hover interaction's CSS
+    // (graph-node-hovered/graph-node-neighbor/graph-node-dimmed, see
+    // createHoverController below) has a stable always-present selector to
+    // put a transition on -- enlarging/glowing is done entirely via this
+    // class's `transform`/`filter`, never by touching r/cx/cy here, since
+    // positionNode() below re-sets cx/cy/r every simulation tick and a
+    // competing attribute write would just get overwritten on the next tick.
+    circle.classList.add("graph-node-circle");
     circle.setAttribute("r", String(nodeRadius(node, config)));
     circle.setAttribute("fill", nodeFill(node));
     circle.setAttribute("fill-opacity", nodeFillOpacity(node));
@@ -409,6 +593,14 @@
     const label = document.createElementNS(SVG_NS, "text");
     label.setAttribute("class", "graph-node-label");
     label.setAttribute("text-anchor", "middle");
+    // font-size as an SVG presentation ATTRIBUTE (a unitless user-space
+    // number), not a CSS length (rem/px/em) -- a CSS font-size renders at a
+    // constant SCREEN pixel size regardless of viewBox zoom, unlike r/cx/cy
+    // on a circle or a line's coordinates, which are plain SVG user-space
+    // numbers that scale automatically with the viewBox. Setting it this way
+    // is what makes labels shrink/grow with zoom the same way nodes/edges
+    // already do (see the "Camera (pan/zoom)" section above).
+    label.setAttribute("font-size", "11");
     label.textContent = node.title;
     svg.appendChild(label);
     nodeLabels.set(node.id, label);
@@ -445,6 +637,20 @@
       node.kind = "resolved";
       node.entryId = entry.id;
       redrawNode(node, circle);
+      // Now that edge color mirrors its endpoints' kind (edgeStrokeColor),
+      // every edge touching this node needs recoloring too -- it just went
+      // from "nonexistent" to "existing", so an edge that was warn-colored
+      // because of THIS end may now read as accent (or stay warn, if its
+      // other end is a still-unresolved stub). config._drawableEdges/
+      // config._edgeRefs are stashed by render() for exactly this, same
+      // private-field convention as config._centerId above.
+      const drawableEdges = config._drawableEdges || [];
+      const edgeRefs = config._edgeRefs || [];
+      drawableEdges.forEach((edge, idx) => {
+        if (edge._a === node || edge._b === node) {
+          edgeRefs[idx].line.setAttribute("stroke", edgeStrokeColor(edge._a, edge._b));
+        }
+      });
       config.onEntryCreated(entry);
     } catch (err) {
       config.onError(err && err.message ? err.message : String(err));
@@ -482,7 +688,135 @@
   // navigates to it.
   const DRAG_THRESHOLD = 4;
 
-  function attachDragHandlers(svg, circle, node, sim, config) {
+  // ---- Hover interaction ---------------------------------------------------
+  //
+  // Hovering a node highlights it + its direct neighbors (either edge
+  // direction, either kind) and fades everything else, per CLAUDE.md's task
+  // spec. Purely a classList toggle on the SAME circle/text/line elements
+  // drawNodeInitial/drawEdgeInitial already created and the live simulation
+  // is still repositioning every tick -- nothing here creates DOM, and
+  // nothing here touches cx/cy/r/x1..y2 (positionNode/positionEdge own
+  // those exclusively; fighting them from here would just flicker on the
+  // next tick). Built once per render() call, not per node, since it needs
+  // to reach every node/edge to dim the ones NOT connected to whichever one
+  // is currently hovered.
+
+  // nodeId -> { neighbors: Set<nodeId>, edgeIdxs: number[] } -- edgeIdxs
+  // indexes into the same drawableEdges/edgeRefs arrays (parallel, built
+  // together in render()), so "highlight the edges touching this node" is a
+  // direct index lookup rather than a re-scan of every edge per hover.
+  function buildAdjacency(drawableEdges) {
+    const adjacency = new Map();
+    function ensure(id) {
+      if (!adjacency.has(id)) {
+        adjacency.set(id, { neighbors: new Set(), edgeIdxs: [] });
+      }
+      return adjacency.get(id);
+    }
+    drawableEdges.forEach((edge, idx) => {
+      const a = ensure(edge.source);
+      const b = ensure(edge.target);
+      a.neighbors.add(edge.target);
+      b.neighbors.add(edge.source);
+      a.edgeIdxs.push(idx);
+      b.edgeIdxs.push(idx);
+    });
+    return adjacency;
+  }
+
+  // `apply`/`clear` are the only two operations needed: `apply(nodeId)`
+  // always clears first, so hovering straight from one node to another (or
+  // re-entering the same one) never leaves a previous highlight combined
+  // with a new one. Every node/label/edge gets exactly one of the mutually
+  // exclusive state classes at a time (hovered XOR neighbor XOR dimmed for
+  // nodes/labels; highlighted XOR dimmed for edges) -- resting state is
+  // "none of the above", handled by simply removing all of them.
+  // `shrinkDimmedToDots` is only ever true for the full-world graph (see
+  // render()'s `config.mode === "world"` check) -- on direct request, dimmed
+  // nodes there shrink to small unlabeled dots rather than just fading, since
+  // a whole-world graph can have far more off-topic nodes cluttering the view
+  // than a 1-hop entry graph ever does. The entry-mode modal and the small
+  // embedded right-rail panel keep the plain fade-only dimming from before.
+  function createHoverController(nodes, nodeCircles, nodeLabels, edgeRefs, adjacency, shrinkDimmedToDots) {
+    function clear() {
+      for (const n of nodes) {
+        const circle = nodeCircles.get(n.id);
+        const label = nodeLabels.get(n.id);
+        if (circle) {
+          circle.classList.remove("graph-node-hovered", "graph-node-neighbor", "graph-node-dimmed", "graph-node-dot");
+        }
+        if (label) {
+          label.classList.remove("graph-label-prominent", "graph-label-dimmed", "graph-label-hidden");
+        }
+      }
+      for (const refs of edgeRefs) {
+        refs.line.classList.remove("graph-edge-highlighted", "graph-edge-dimmed");
+        if (refs.label) {
+          refs.label.classList.remove("graph-edge-highlighted", "graph-edge-dimmed");
+        }
+      }
+    }
+
+    function apply(nodeId) {
+      clear();
+      const info = adjacency.get(nodeId);
+      const neighborIds = info ? info.neighbors : new Set();
+      const edgeIdxs = info ? new Set(info.edgeIdxs) : new Set();
+
+      for (const n of nodes) {
+        const circle = nodeCircles.get(n.id);
+        const label = nodeLabels.get(n.id);
+        const isHovered = n.id === nodeId;
+        const isNeighbor = neighborIds.has(n.id);
+        if (circle) {
+          if (isHovered) {
+            circle.classList.add("graph-node-hovered");
+          } else if (isNeighbor) {
+            circle.classList.add("graph-node-neighbor");
+          } else {
+            circle.classList.add("graph-node-dimmed");
+            if (shrinkDimmedToDots) {
+              circle.classList.add("graph-node-dot");
+            }
+          }
+        }
+        // Labels: hovered + neighbor stay/become MORE prominent (spec
+        // requirement 5); everything else dims along with its node -- or,
+        // on the full-world graph, disappears entirely (graph-label-hidden)
+        // rather than just fading, per the "dots without labels" request.
+        if (label) {
+          if (isHovered || isNeighbor) {
+            label.classList.add("graph-label-prominent");
+          } else {
+            label.classList.add(shrinkDimmedToDots ? "graph-label-hidden" : "graph-label-dimmed");
+          }
+        }
+      }
+      edgeRefs.forEach((refs, idx) => {
+        const cls = edgeIdxs.has(idx) ? "graph-edge-highlighted" : "graph-edge-dimmed";
+        refs.line.classList.add(cls);
+        if (refs.label) {
+          refs.label.classList.add(cls);
+        }
+      });
+    }
+
+    return { apply: apply, clear: clear };
+  }
+
+  // Wires mouseenter/mouseleave onto one node's circle -- deliberately
+  // separate from attachDragHandlers (which owns pointerdown/pointermove/
+  // click/dblclick) rather than folded into it, since hover and drag are
+  // independent interactions with no shared state of their own (the one
+  // place they DO interact -- pointer capture during a drag suppressing
+  // native mouseleave -- is handled from attachDragHandlers' endDrag via the
+  // same `hoverController` reference, not from here).
+  function attachHoverHandlers(circle, nodeId, hoverController) {
+    circle.addEventListener("mouseenter", () => hoverController.apply(nodeId));
+    circle.addEventListener("mouseleave", () => hoverController.clear());
+  }
+
+  function attachDragHandlers(svg, circle, node, sim, config, hoverController, nodeCircles) {
     let pointerId = null;
     let downX = 0, downY = 0;
     let moved = false;
@@ -497,6 +831,12 @@
       downX = event.clientX;
       downY = event.clientY;
       event.preventDefault();
+      // Stop this from also reaching the svg-level camera-pan listener (see
+      // attachCameraControls) -- without this, starting a node drag would
+      // simultaneously start panning the camera underneath it, since
+      // pointerdown bubbles from the circle up to its parent <svg> by
+      // default.
+      event.stopPropagation();
     });
 
     circle.addEventListener("pointermove", (event) => {
@@ -528,6 +868,30 @@
         node.fixed = false;
         circle.style.cursor = "grab";
         sim.reheat();
+        // While a pointer is captured (setPointerCapture, above, for the
+        // whole drag), the browser keeps targeting THIS circle for mouse
+        // events regardless of where the cursor actually is -- so a
+        // mouseleave never fires on this circle if the drag carried the
+        // cursor off of it, and no OTHER circle's mouseenter fires either
+        // even if the drag ended on top of one. Once capture is released
+        // (just above), explicitly recompute hover state from the real
+        // cursor position rather than trusting stale/missing native
+        // mouseenter/mouseleave events to have kept it in sync.
+        if (hoverController && nodeCircles) {
+          const target = document.elementFromPoint(event.clientX, event.clientY);
+          let hoveredId = null;
+          for (const [id, c] of nodeCircles) {
+            if (c === target) {
+              hoveredId = id;
+              break;
+            }
+          }
+          if (hoveredId !== null) {
+            hoverController.apply(hoveredId);
+          } else {
+            hoverController.clear();
+          }
+        }
       }
     }
     circle.addEventListener("pointerup", endDrag);
@@ -575,6 +939,19 @@
     let currentContainer = null;
     let nodeCircles = new Map(); // node.id -> <circle> element, for redrawNode()
     let currentSim = null;
+    // Camera (pan/zoom) state for THIS renderer instance -- see the "Camera
+    // (pan/zoom)" section above. A single long-lived object (mutated in
+    // place, never reassigned) so attachCameraControls' event listeners --
+    // which are only ever attached ONCE per <svg> element, see the
+    // mythosPanZoomBound guard below -- keep seeing live updates across many
+    // render() calls without needing to be re-attached. canvasWidth/Height
+    // mirror the same width/height the force simulation itself uses; kept
+    // here (not just a local in render()) so attachCameraControls' getSize()
+    // closure can read whatever the MOST RECENT render() set, even though
+    // the listeners predate that render call.
+    const camera = { zoom: 1, panX: 0, panY: 0 };
+    let canvasWidth = 900;
+    let canvasHeight = 600;
 
     // config.canvasSelector lets a caller point this at a different <svg>
     // than the modal's default #graph-canvas -- the embedded panel uses
@@ -618,7 +995,30 @@
       // a fixed 900x600 default (see containerSize) if that still comes
       // back empty.
       const { width, height } = containerSize(svg);
-      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      canvasWidth = width;
+      canvasHeight = height;
+
+      // Reset the camera on every fresh render() -- same "start clean"
+      // treatment as nodeCircles/nodeLabels just above -- so reopening the
+      // modal, or switching between the entry-graph and world-graph views,
+      // always starts framed at the default view rather than wherever a
+      // previous render's pan/zoom was left.
+      camera.zoom = 1;
+      camera.panX = 0;
+      camera.panY = 0;
+      updateViewBox(svg, camera, width, height);
+
+      // Pan/zoom listeners are attached to the <svg> element itself exactly
+      // ONCE -- render() can run many times against the same DOM element
+      // (clearSvg() only empties its children, it never replaces the <svg>
+      // node), and re-adding these on every render would stack duplicate
+      // listeners that each independently react to the same wheel/pointer
+      // event. The dataset flag lives on the element, so it survives
+      // exactly as long as the element itself does.
+      if (!svg.dataset.mythosPanZoomBound) {
+        attachCameraControls(svg, camera, () => ({ width: canvasWidth, height: canvasHeight }));
+        svg.dataset.mythosPanZoomBound = "true";
+      }
 
       let local, centerId;
       if (config.mode === "entry") {
@@ -669,6 +1069,12 @@
       // as before. The simulation's onTick callback below only ever
       // repositions these, never recreates them.
       const edgeRefs = drawableEdges.map((edge) => drawEdgeInitial(svg, edge));
+      // Stashed on config so createStubFromNode (called much later, from a
+      // dblclick on some node's circle) can find + recolor the edges
+      // touching whichever node just flipped from unresolved to resolved --
+      // same private-field-on-config convention as config._centerId.
+      config._drawableEdges = drawableEdges;
+      config._edgeRefs = edgeRefs;
       for (const node of nodes) {
         drawNodeInitial(svg, node, config, nodeCircles, nodeLabels);
       }
@@ -683,10 +1089,23 @@
       });
       currentSim = sim;
 
-      // Wire drag/click/dblclick now that `sim` exists (dragging needs to
-      // call sim.reheat()) -- one listener set per node circle.
+      // Built once per render, after drawableEdges/edgeRefs both exist (see
+      // the "Hover interaction" section above) -- adjacency indexes into
+      // edgeRefs by position, so it has to be built from the same
+      // drawableEdges array edgeRefs was mapped from, not the raw `edges`.
+      const adjacency = buildAdjacency(drawableEdges);
+      const hoverController = createHoverController(
+        nodes, nodeCircles, nodeLabels, edgeRefs, adjacency, config.mode === "world"
+      );
+
+      // Wire drag/click/dblclick/hover now that `sim` and `hoverController`
+      // both exist (dragging needs to call sim.reheat(); its drag-end also
+      // needs hoverController to resync hover state post-capture-release,
+      // see attachDragHandlers' endDrag) -- one listener set per node circle.
       for (const node of nodes) {
-        attachDragHandlers(svg, nodeCircles.get(node.id), node, sim, config);
+        const circle = nodeCircles.get(node.id);
+        attachDragHandlers(svg, circle, node, sim, config, hoverController, nodeCircles);
+        attachHoverHandlers(circle, node.id, hoverController);
       }
 
       // Paint the seeded starting positions immediately so there's no
@@ -715,7 +1134,22 @@
       }
     }
 
-    return { render: render, close: close };
+    // Resets ONLY the camera (zoom/pan) back to the default framed view --
+    // deliberately does not touch the force-layout/node positions at all,
+    // per spec ("recentering only resets the camera, never the graph's
+    // shape"). A no-op if nothing has been rendered yet (svgEl is only set
+    // inside render()).
+    function recenter() {
+      if (!svgEl) {
+        return;
+      }
+      camera.zoom = 1;
+      camera.panX = 0;
+      camera.panY = 0;
+      updateViewBox(svgEl, camera, canvasWidth, canvasHeight);
+    }
+
+    return { render: render, close: close, recenter: recenter };
   }
 
   const modalRenderer = createRenderer();
@@ -724,6 +1158,14 @@
   window.graph = {
     render: modalRenderer.render,
     close: modalRenderer.close,
+    // Resets the modal's camera (pan/zoom) back to the default framed view
+    // without touching the graph's own layout -- wired to the modal
+    // header's recenter button in app.js. Pan/zoom itself works on BOTH
+    // renderer instances (createRenderer() wires it generically), but a
+    // recenter BUTTON only exists in the modal's chrome -- the embedded
+    // right-rail panel has no header to put one in (see CLAUDE.md's task
+    // note on this).
+    recenter: modalRenderer.recenter,
     // Small embedded right-rail per-entry graph panel -- same merged
     // wikilink+relation data and live simulation (radial seed, same as the
     // modal's "entry" mode), just a smaller chrome-free canvas

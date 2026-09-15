@@ -57,6 +57,13 @@
   // editor.js itself creates a stub entry (2.7).
   let titleIndex = new Map();
 
+  // Map<entryId, Entry> -- rebuilt alongside titleIndex, same lifecycle.
+  // Only exists to back the hover-preview popup (js/link-preview.js): a
+  // resolved wikilink span only carries the target's id (data-entry-id), so
+  // this is what resolves that id back to a title + summary at hover time
+  // without a network call.
+  let entryById = new Map();
+
   // Token list for the text currently in the textarea, refreshed on every
   // input/render pass. Click/dblclick routing consults this instead of the
   // DOM, since the overlay's spans are not interactive (pointer-events: none).
@@ -92,6 +99,7 @@
     editingEnabled = config.editing === true;
 
     titleIndex = buildTitleIndex(config.entries || []);
+    entryById = buildEntryById(config.entries || []);
 
     if (!listenersAttached) {
       attachListeners();
@@ -110,6 +118,16 @@
     for (const entry of entries) {
       if (entry && entry.title) {
         map.set(entry.title.toLowerCase(), entry.id);
+      }
+    }
+    return map;
+  }
+
+  function buildEntryById(entries) {
+    const map = new Map();
+    for (const entry of entries) {
+      if (entry) {
+        map.set(entry.id, entry);
       }
     }
     return map;
@@ -635,6 +653,13 @@
         span.dataset.wikilinkTitle = token.rawTitle;
         if (token.resolved) {
           span.dataset.entryId = token.entryId;
+          // Hover-preview popup (js/link-preview.js) -- only ever wired for
+          // a resolved span, i.e. only for a link to an entry that already
+          // exists, per that feature's requirement. Looked up lazily (a
+          // function, not the entry itself) so a hover that outlives an
+          // entryById update (e.g. this exact entry's summary just changed)
+          // still reads the current value rather than a stale closure.
+          window.linkPreview.attach(span, () => entryById.get(token.entryId));
         }
         return span;
       }
@@ -713,6 +738,7 @@
         contentMarkdown: "",
       });
       titleIndex.set(entry.title.toLowerCase(), entry.id);
+      entryById.set(entry.id, entry);
       refreshOverlay();
       renderPreviewInto();
       onEntriesChanged(entry);

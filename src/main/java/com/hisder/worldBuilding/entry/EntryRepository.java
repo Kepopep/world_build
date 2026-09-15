@@ -15,6 +15,18 @@ public interface EntryRepository extends JpaRepository<Entry, Long> {
     // still has entries in it, rather than silently orphaning them.
     boolean existsByFolderId(Long folderId);
 
+    // Backs EntryService's duplicate-title guard (see
+    // docs/design/entry-title-uniqueness.md). IgnoreCase matches the same
+    // case-insensitive resolution the wikilink autocomplete already assumes
+    // (CLAUDE.md's "Map<lowercaseTitle, entryId>" note) -- two entries whose
+    // titles differ only by case would otherwise collide in that map.
+    boolean existsByWorldIdAndTitleIgnoreCase(Long worldId, String title);
+
+    // Same check, excluding the entry being updated -- so renaming an entry
+    // to a case-variant of its own current title isn't flagged against
+    // itself.
+    boolean existsByWorldIdAndTitleIgnoreCaseAndIdNot(Long worldId, String title, Long id);
+
     @Query("select e from Entry e where e.world.id = :worldId "
             + "and lower(e.title) like lower(concat('%', :query, '%')) "
             + "order by e.title asc")

@@ -457,10 +457,18 @@
       li.appendChild(moveToRootBtn);
     }
 
+    // Same hover-revealed, danger-styled button as a folder's delete
+    // (renderFolderNode) -- reuses .tree-action-btn so it's hidden until the
+    // row is hovered/focused (see that class's rule in sidebar.css), rather
+    // than the old .entry-delete-btn which was permanently visible.
+    // Confirmation lives in app.js's onDeleteEntry, not here -- unlike folder
+    // deletion, which sidebar.js handles entirely itself.
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
-    deleteBtn.className = "entry-delete-btn";
-    deleteBtn.textContent = "Delete";
+    deleteBtn.className = "tree-action-btn danger";
+    deleteBtn.title = "Delete entry";
+    deleteBtn.setAttribute("aria-label", `Delete ${entry.title || "entry"}`);
+    deleteBtn.textContent = "×";
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       config.onDeleteEntry(entry.id);

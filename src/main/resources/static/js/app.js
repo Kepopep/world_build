@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", () => {
   els.graphModal = document.getElementById("graph-modal");
   els.graphModalClose = document.getElementById("graph-modal-close");
   els.graphModalTitle = document.getElementById("graph-modal-title");
+  els.graphRecenterBtn = document.getElementById("graph-recenter-btn");
   els.statusMessage = document.getElementById("status-message");
 
   // Entry header (icon/title/summary) + metadata.
@@ -92,6 +93,12 @@ document.addEventListener("DOMContentLoaded", () => {
   els.entryGraphBtn.addEventListener("click", onOpenEntryGraph);
   els.worldGraphBtn.addEventListener("click", onOpenWorldGraph);
   els.graphModalClose.addEventListener("click", () => window.graph.close());
+  // Resets only the camera (pan/zoom) back to the default framed view --
+  // the graph's own force-layout shape is untouched, see js/graph.js's
+  // recenter(). A plain click handler, not gated on anything, since the
+  // button only exists inside the modal to begin with (it's only reachable
+  // while the modal is open).
+  els.graphRecenterBtn.addEventListener("click", () => window.graph.recenter());
   // Click-outside-to-close: #graph-modal is the full-screen dimmed overlay,
   // .modal-panel the actual box inside it -- a click only reaches the
   // overlay's own listener as event.target === els.graphModal when it
@@ -531,7 +538,13 @@ function refreshRightPanel() {
     window.backlinks.render(els.backlinksPanelBody, {
       entries: state.entries,
       currentEntry: entry,
+      worldId: state.selectedWorldId,
       onNavigate: (id) => openEntry(id),
+      // Inactive "Linked to" items (an unresolved [[wikilink]] title) create
+      // a stub entry on click, same POST editor.js's dblclick-to-create-stub
+      // makes -- but unlike that in-place flip, clicking here navigates
+      // straight into the new entry in edit mode (see onLinkedToStubCreated).
+      onEntriesChanged: onLinkedToStubCreated,
     });
   } else if (state.rightPanel === "entry-graph") {
     if (!entry) {
@@ -712,6 +725,20 @@ function onStubEntryCreated(entry) {
   // resolves a link that pointed at the just-created title) -- cheap enough
   // to just always refresh rather than trying to detect that specifically.
   refreshRightPanel();
+}
+
+// Called by backlinks.js after it creates a stub entry for a clicked
+// "Linked to -> Inactive" title. Unlike onStubEntryCreated above (editor.js's
+// double-click-to-create-stub, which flips the clicked span to resolved in
+// place and deliberately stays on the current entry so an in-progress edit
+// isn't interrupted), the backlinks panel is display-only -- there's no
+// editing session to preserve, so this navigates straight into the new
+// entry in edit mode instead, same "ready to type immediately" treatment
+// onCreateEntry gives every other freshly-created entry. openEntry() already
+// takes care of pushing/replacing the entry in state.entries and
+// re-rendering the sidebar, so nothing else is needed here.
+function onLinkedToStubCreated(entry) {
+  openEntry(entry.id, { startEditing: true });
 }
 
 // folderId: creates the entry inside that folder, or at the world's root if

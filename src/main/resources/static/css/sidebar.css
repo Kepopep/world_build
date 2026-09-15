@@ -1,9 +1,10 @@
 /* Folder/entry tree (js/sidebar.js) and breadcrumb (rendered directly by
    js/app.js -- simple enough not to warrant its own module). Layered on top
    of base.css, which still owns #entry-tree's reset and the
-   .entry-list-item/.entry-title-btn/.entry-delete-btn styling that tree
-   entry rows reuse directly (sidebar.js gives each entry <li> both
-   "tree-entry" and "entry-list-item" classes). */
+   .entry-list-item/.entry-title-btn styling that tree entry rows reuse
+   directly (sidebar.js gives each entry <li> both "tree-entry" and
+   "entry-list-item" classes). An entry row's delete/move-to-root buttons are
+   .tree-action-btn, styled below alongside the folder row's own. */
 
 .sidebar-header button {
   /* The header now holds two buttons ("+ Folder", "+ New entry") alongside

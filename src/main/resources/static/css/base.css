@@ -127,6 +127,11 @@ body {
   gap: 0.5rem;
   border-radius: 4px;
   margin-bottom: 0.25rem;
+  /* Right/left padding matches .tree-folder-row's, so the delete/move-to-root
+     buttons (which sit directly in this row, unlike a folder's, which sit in
+     a nested .tree-folder-row) get the same offset from the row's edges
+     instead of butting up against them. */
+  padding: 0 0.25rem;
 }
 
 .entry-list-item:hover {
@@ -150,7 +155,9 @@ body {
   text-align: left;
   background: none;
   border: none;
-  padding: 0.5rem;
+  /* Slightly less vertical padding than the original 0.5rem, shaving a
+     couple of pixels off the row's overall height. */
+  padding: 0.4rem 0.5rem;
   cursor: pointer;
   font-size: 0.95rem;
   color: var(--color-text);
@@ -160,21 +167,14 @@ body {
   white-space: nowrap;
 }
 
+/* Explicitly transparent, not just "no rule" -- without this, the generic
+   button:hover rule further down this file (background: var(--color-bg-alt))
+   fills in instead, drawing its own lighter box hugging just the title text/
+   click-area. The row (.entry-list-item:hover) already highlights on hover,
+   same as a folder row, so the button itself should never show a hover
+   background of its own. */
 .entry-title-btn:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.entry-list-item.active .entry-title-btn:hover {
-  background: transparent;
-}
-
-.entry-delete-btn {
   background: none;
-  border: none;
-  color: var(--color-danger);
-  cursor: pointer;
-  font-size: 0.8rem;
-  padding: 0.25rem 0.5rem;
 }
 
 .entry-list-empty {
